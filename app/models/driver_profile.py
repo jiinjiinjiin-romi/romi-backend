@@ -14,6 +14,7 @@ from app.utils.uuid import generate_uuid4
 
 if TYPE_CHECKING:
     from app.models.account import Account
+    from app.models.driving_session import DrivingSession
     from app.models.saved_place import SavedPlace
     from app.models.search_history import SearchHistory
 
@@ -131,6 +132,12 @@ class DriverProfile(Base):
     )
     search_histories: Mapped[list[SearchHistory]] = relationship(
         "SearchHistory",
+        back_populates="profile",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    driving_sessions: Mapped[list[DrivingSession]] = relationship(
+        "DrivingSession",
         back_populates="profile",
         cascade="all, delete-orphan",
         passive_deletes=True,

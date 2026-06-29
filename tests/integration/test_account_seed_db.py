@@ -51,7 +51,13 @@ async def test_accounts_table_matches_mysql_spec() -> None:
     assert "driver_profiles" in tables
     assert "saved_places" in tables
     assert "search_histories" in tables
-    assert "driving_sessions" not in tables
+    assert "driving_sessions" in tables
+    assert "location_samples" in tables
+    assert "behavior_events" in tables
+    assert "interventions" in tables
+    assert "driver_responses" in tables
+    assert "agent_conversations" not in tables
+    assert "report_exports" not in tables
 
     await dispose_engine()
 

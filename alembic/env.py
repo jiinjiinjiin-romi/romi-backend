@@ -10,7 +10,17 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 from app.core.config import get_settings
 from app.db.base import Base
-from app.models import Account, DriverProfile, SavedPlace, SearchHistory
+from app.models import (
+    Account,
+    BehaviorEvent,
+    DriverProfile,
+    DriverResponse,
+    DrivingSession,
+    Intervention,
+    LocationSample,
+    SavedPlace,
+    SearchHistory,
+)
 
 config = context.config
 
@@ -21,7 +31,17 @@ settings = get_settings()
 config.set_main_option("sqlalchemy.url", settings.database_url)
 
 # Model imports above populate Base.metadata for Alembic autogenerate.
-_MODEL_IMPORTS = (Account, DriverProfile, SavedPlace, SearchHistory)
+_MODEL_IMPORTS = (
+    Account,
+    DriverProfile,
+    SavedPlace,
+    SearchHistory,
+    DrivingSession,
+    LocationSample,
+    BehaviorEvent,
+    Intervention,
+    DriverResponse,
+)
 target_metadata = Base.metadata
 
 
