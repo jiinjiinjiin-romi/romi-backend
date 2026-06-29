@@ -9,6 +9,7 @@ from app.api.error_handlers import register_error_handlers
 from app.api.v1.router import router as api_v1_router
 from app.core.config import get_settings
 from app.core.logging import RequestIdMiddleware, configure_logging
+from app.db.session import dispose_engine
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +19,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     configure_logging(settings.log_level)
     logger.info("%s starting", settings.app_name)
-    yield
-    logger.info("%s stopping", settings.app_name)
+    try:
+        yield
+    finally:
+        await dispose_engine()
+        logger.info("%s stopping", settings.app_name)
 
 
 def create_app() -> FastAPI:

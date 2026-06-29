@@ -1,0 +1,72 @@
+from collections.abc import Awaitable, Callable
+from pathlib import Path
+
+from app.core.config import Settings
+from app.core.time import utc_now_for_api_response
+from app.db.init_db import check_database_connection
+from app.schemas.health import HealthResponse, HealthServices, ServiceState
+
+
+class DatabaseUnavailableError(Exception):
+    pass
+
+
+class HealthService:
+    def __init__(
+        self,
+        settings: Settings,
+        db_checker: Callable[[], Awaitable[None]] = check_database_connection,
+    ) -> None:
+        self.settings = settings
+        self.db_checker = db_checker
+
+    async def get_health(self) -> HealthResponse:
+        try:
+            await self.db_checker()
+        except Exception as exc:
+            raise DatabaseUnavailableError("Database connection check failed.") from exc
+
+        services = HealthServices(
+            database="UP",
+            vit_model=self._service_state(self.is_vit_model_available()),
+            gemini=self._service_state(self.is_gemini_configured()),
+            email=self._service_state(self.is_email_configured()),
+        )
+        status = (
+            "UP"
+            if all(
+                state == "UP"
+                for state in (services.vit_model, services.gemini, services.email)
+            )
+            else "DEGRADED"
+        )
+
+        return HealthResponse(
+            status=status,
+            services=services,
+            model_version=self.settings.model_version,
+            policy_version=self.settings.policy_version,
+            checked_at=utc_now_for_api_response(),
+        )
+
+    def is_vit_model_available(self) -> bool:
+        return Path(self.settings.model_path).is_file()
+
+    def is_gemini_configured(self) -> bool:
+        return bool(self.settings.gemini_api_key and self.settings.gemini_model)
+
+    def is_email_configured(self) -> bool:
+        return all(
+            (
+                self.settings.email_provider,
+                self.settings.email_host,
+                self.settings.email_port,
+                self.settings.email_username,
+                self.settings.email_password,
+                self.settings.email_from,
+            )
+        )
+
+    @staticmethod
+    def _service_state(is_available: bool) -> ServiceState:
+        return "UP" if is_available else "DOWN"
