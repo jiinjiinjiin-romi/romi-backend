@@ -1,0 +1,8 @@
+from enum import StrEnum
+
+
+class ErrorCode(StrEnum):
+    INTERNAL_SERVER_ERROR = "INTERNAL_SERVER_ERROR"
+    VALIDATION_ERROR = "VALIDATION_ERROR"
+    HTTP_ERROR = "HTTP_ERROR"
+    NOT_FOUND = "NOT_FOUND"
