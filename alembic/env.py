@@ -9,7 +9,8 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from alembic import context
 from app.core.config import get_settings
-from app.models import Account
+from app.db.base import Base
+from app.models import Account, DriverProfile, SavedPlace, SearchHistory
 
 config = context.config
 
@@ -19,8 +20,9 @@ if config.config_file_name is not None:
 settings = get_settings()
 config.set_main_option("sqlalchemy.url", settings.database_url)
 
-# Account is imported above so Alembic can discover its table metadata.
-target_metadata = Account.metadata
+# Model imports above populate Base.metadata for Alembic autogenerate.
+_MODEL_IMPORTS = (Account, DriverProfile, SavedPlace, SearchHistory)
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:

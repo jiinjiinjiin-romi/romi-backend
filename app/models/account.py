@@ -1,10 +1,14 @@
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import CHAR, String, UniqueConstraint, text
 from sqlalchemy.dialects import mysql
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+if TYPE_CHECKING:
+    from app.models.driver_profile import DriverProfile
 
 
 class Account(Base):
@@ -30,4 +34,10 @@ class Account(Base):
         nullable=False,
         server_default=text("CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)"),
         server_onupdate=text("CURRENT_TIMESTAMP(6)"),
+    )
+    driver_profiles: Mapped[list["DriverProfile"]] = relationship(
+        "DriverProfile",
+        back_populates="account",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )

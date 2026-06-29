@@ -48,8 +48,9 @@ async def test_accounts_table_matches_mysql_spec() -> None:
     assert "default charset=utf8mb4" in create_sql
     assert "collate=utf8mb4_0900_ai_ci" in create_sql
     assert "accounts" in tables
-    assert "driver_profiles" not in tables
-    assert "saved_places" not in tables
+    assert "driver_profiles" in tables
+    assert "saved_places" in tables
+    assert "search_histories" in tables
     assert "driving_sessions" not in tables
 
     await dispose_engine()
