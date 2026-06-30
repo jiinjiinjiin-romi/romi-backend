@@ -21,6 +21,17 @@ PROFILE_VALIDATION_MESSAGES: dict[str, str] = {
     ErrorCode.INVALID_PROFILE_SETTING.value: "프로필 설정값이 올바르지 않습니다.",
 }
 
+PLACE_VALIDATION_MESSAGES: dict[str, str] = {
+    ErrorCode.INVALID_COORDINATES.value: "위도 또는 경도 값이 올바르지 않습니다.",
+    ErrorCode.EMPTY_PLACE_ADDRESS.value: "장소 주소를 입력해 주세요.",
+    ErrorCode.INVALID_PLACE_SETTING.value: "장소 설정값이 올바르지 않습니다.",
+}
+
+QUERY_VALIDATION_MESSAGES: dict[str, str] = {
+    ErrorCode.INVALID_PAGE.value: "페이지 번호는 1 이상이어야 합니다.",
+    ErrorCode.INVALID_PAGE_SIZE.value: "페이지 크기는 1 이상 100 이하로 설정해야 합니다.",
+}
+
 MISSING_FIELD_ERROR_CODES: dict[str, ErrorCode] = {
     "displayName": ErrorCode.INVALID_DISPLAY_NAME,
     "display_name": ErrorCode.INVALID_DISPLAY_NAME,
@@ -30,6 +41,12 @@ MISSING_FIELD_ERROR_CODES: dict[str, ErrorCode] = {
     "warning_sensitivity": ErrorCode.INVALID_WARNING_SENSITIVITY,
     "ttsSpeed": ErrorCode.INVALID_TTS_SPEED,
     "tts_speed": ErrorCode.INVALID_TTS_SPEED,
+}
+
+PLACE_MISSING_FIELD_ERROR_CODES: dict[str, ErrorCode] = {
+    "address": ErrorCode.EMPTY_PLACE_ADDRESS,
+    "latitude": ErrorCode.INVALID_COORDINATES,
+    "longitude": ErrorCode.INVALID_COORDINATES,
 }
 
 
@@ -59,6 +76,59 @@ def _profile_validation_error(errors: list[dict[str, object]]) -> tuple[str, str
         return (
             ErrorCode.INVALID_PROFILE_SETTING.value,
             PROFILE_VALIDATION_MESSAGES[ErrorCode.INVALID_PROFILE_SETTING.value],
+        )
+
+    return None
+
+
+def _place_validation_error(errors: list[dict[str, object]]) -> tuple[str, str] | None:
+    if not errors:
+        return None
+
+    first_error = errors[0]
+    error_type = str(first_error.get("type", ""))
+    loc = first_error.get("loc", ())
+    field = str(loc[-1]) if isinstance(loc, tuple | list) and loc else ""
+
+    if error_type in PLACE_VALIDATION_MESSAGES:
+        return error_type, PLACE_VALIDATION_MESSAGES[error_type]
+
+    if error_type == "missing":
+        error_code = PLACE_MISSING_FIELD_ERROR_CODES.get(field, ErrorCode.INVALID_PLACE_SETTING)
+        return error_code.value, PLACE_VALIDATION_MESSAGES[error_code.value]
+
+    if error_type in {
+        "extra_forbidden",
+        "float_type",
+        "float_parsing",
+        "string_type",
+        "model_attributes_type",
+    }:
+        error_code = (
+            ErrorCode.INVALID_COORDINATES
+            if field in {"latitude", "longitude"}
+            else ErrorCode.INVALID_PLACE_SETTING
+        )
+        return error_code.value, PLACE_VALIDATION_MESSAGES[error_code.value]
+
+    return None
+
+
+def _query_validation_error(errors: list[dict[str, object]]) -> tuple[str, str] | None:
+    if not errors:
+        return None
+
+    first_error = errors[0]
+    loc = first_error.get("loc", ())
+    field = str(loc[-1]) if isinstance(loc, tuple | list) and loc else ""
+
+    if field == "page":
+        return ErrorCode.INVALID_PAGE.value, QUERY_VALIDATION_MESSAGES[ErrorCode.INVALID_PAGE.value]
+
+    if field == "size":
+        return (
+            ErrorCode.INVALID_PAGE_SIZE.value,
+            QUERY_VALIDATION_MESSAGES[ErrorCode.INVALID_PAGE_SIZE.value],
         )
 
     return None
@@ -108,11 +178,25 @@ async def validation_exception_handler(
     request: Request,
     exc: RequestValidationError,
 ) -> JSONResponse:
-    profile_error = _profile_validation_error(exc.errors())
-    if profile_error is not None:
-        error_code, message = profile_error
+    path = request.url.path
+    if "/search-histories" in path:
+        mapped_error = _query_validation_error(exc.errors())
+        log_label = "Query"
+    elif "/saved-places" in path or "/favorites" in path:
+        mapped_error = _place_validation_error(exc.errors())
+        log_label = "Saved place"
+    elif "/profiles" in path:
+        mapped_error = _profile_validation_error(exc.errors())
+        log_label = "Profile"
+    else:
+        mapped_error = None
+        log_label = "Validation"
+
+    if mapped_error is not None:
+        error_code, message = mapped_error
         logger.warning(
-            "Profile validation error request_id=%s path=%s error=%s details=%s",
+            "%s validation error request_id=%s path=%s error=%s details=%s",
+            log_label,
             get_request_id(),
             request.url.path,
             error_code,

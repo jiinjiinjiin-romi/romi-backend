@@ -28,6 +28,15 @@ Do not use `Base.metadata.create_all()` for application schema management.
   - `PATCH /api/v1/profiles/{profileId}`
   - `DELETE /api/v1/profiles/{profileId}`
   - `POST /api/v1/profiles/{profileId}/select`
+- Saved Place REST API:
+  - `GET /api/v1/profiles/{profileId}/saved-places`
+  - `PUT /api/v1/profiles/{profileId}/saved-places/{placeType}`
+  - `POST /api/v1/profiles/{profileId}/favorites`
+  - `PATCH /api/v1/saved-places/{placeId}`
+  - `DELETE /api/v1/saved-places/{placeId}`
+- Search History REST API:
+  - `GET /api/v1/profiles/{profileId}/search-histories`
+  - `DELETE /api/v1/profiles/{profileId}/search-histories`
 - Docker Compose stack for backend and MySQL
 - Ruff, pytest, compileall, OpenAPI, and smoke checks
 
@@ -35,7 +44,8 @@ Do not use `Base.metadata.create_all()` for application schema management.
 
 - Login, JWT, passwords, roles, or authority management
 - Account CRUD API
-- Saved Place, Search History, Driving Session, Agent, Report, and Report Export APIs
+- Search History creation REST API
+- Driving Session, Agent, Report, and Report Export APIs
 - WebSocket
 - ViT inference, Gemini calls, email delivery, report file generation, and risk policy services
 
@@ -91,6 +101,8 @@ If migration fails, seed and Uvicorn do not run. If seed fails, Uvicorn does not
 - Health API: `http://localhost:8000/api/v1/health`
 - Bootstrap API: `http://localhost:8000/api/v1/bootstrap`
 - Profile API: `http://localhost:8000/api/v1/profiles`
+- Saved Places API: `http://localhost:8000/api/v1/profiles/{profileId}/saved-places`
+- Search Histories API: `http://localhost:8000/api/v1/profiles/{profileId}/search-histories`
 
 ## Profile API Example
 
@@ -117,6 +129,59 @@ Invoke-RestMethod `
     -Method Post `
     -Uri "http://localhost:8000/api/v1/profiles/$($profile.id)/select"
 ```
+
+## Saved Place API Example
+
+```powershell
+$homeBody = @{
+    label = "Smoke Home"
+    provider = "KAKAO"
+    providerPlaceId = "smoke-home-001"
+    address = "서울특별시 광진구 능동로 209"
+    latitude = 37.5501
+    longitude = 127.0734
+} | ConvertTo-Json
+
+$home = Invoke-RestMethod `
+    -Method Put `
+    -Uri "http://localhost:8000/api/v1/profiles/$($profile.id)/saved-places/HOME" `
+    -ContentType "application/json" `
+    -Body $homeBody
+
+$favoriteBody = @{
+    label = "Smoke Favorite"
+    provider = "KAKAO"
+    providerPlaceId = "smoke-favorite-001"
+    address = "서울특별시 성동구 성수동"
+    latitude = 37.5442
+    longitude = 127.0557
+} | ConvertTo-Json
+
+$favorite = Invoke-RestMethod `
+    -Method Post `
+    -Uri "http://localhost:8000/api/v1/profiles/$($profile.id)/favorites" `
+    -ContentType "application/json" `
+    -Body $favoriteBody
+
+Invoke-RestMethod `
+    -Method Get `
+    -Uri "http://localhost:8000/api/v1/profiles/$($profile.id)/saved-places"
+```
+
+## Search History API Example
+
+```powershell
+Invoke-RestMethod `
+    -Method Get `
+    -Uri "http://localhost:8000/api/v1/profiles/$($profile.id)/search-histories?page=1&size=20"
+
+Invoke-RestMethod `
+    -Method Delete `
+    -Uri "http://localhost:8000/api/v1/profiles/$($profile.id)/search-histories"
+```
+
+Search history creation REST API is not defined yet. The latest-50 retention
+policy is applied by the future writer that creates search history rows.
 
 ## Logs And Status
 
@@ -194,12 +259,19 @@ Latest verified result on 2026-06-30:
 
 ```text
 ruff check . -> passed
-pytest -ra -> 113 passed
+pytest -ra -> 146 passed
 python -m compileall app -> passed
-PowerShell smoke test -> passed
-OpenAPI path/schema check -> passed
+Saved Place MySQL Integration -> passed
+Search History MySQL Integration -> passed
+Concurrent fixed-place/favorite tests -> passed
+Current working tree OpenAPI import check -> passed
 Alembic current/head -> 0004_agent_report_tables
 ```
+
+During the 3-2 implementation run, Docker image build completed but backend
+container recreation failed with a Docker Desktop daemon `metadata.db`
+input/output error. The live `localhost:8000` container was therefore not
+replaced and PowerShell API smoke tests were not completed in that run.
 
 ## Stop Containers
 
