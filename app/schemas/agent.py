@@ -45,3 +45,31 @@ class AgentConversationCreateResponse(ApiBaseModel):
     @field_serializer("started_at")
     def serialize_started_at(self, value: datetime) -> str:
         return format_utc_datetime(value)
+
+
+class AgentMessageResponse(ApiBaseModel):
+    id: str
+    sequence_no: int
+    role: str
+    text: str | None
+    intent: str | None
+    input_type: str | None
+    created_at: datetime
+
+    @field_serializer("created_at")
+    def serialize_created_at(self, value: datetime) -> str:
+        return format_utc_datetime(value)
+
+
+class AgentConversationDetailResponse(ApiBaseModel):
+    id: str
+    session_id: str
+    mode: str
+    status: str
+    started_at: datetime
+    ended_at: datetime | None
+    messages: list[AgentMessageResponse] = Field(default_factory=list)
+
+    @field_serializer("started_at", "ended_at")
+    def serialize_datetime(self, value: datetime | None) -> str | None:
+        return None if value is None else format_utc_datetime(value)

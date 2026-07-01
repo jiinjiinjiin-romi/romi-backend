@@ -3,10 +3,10 @@ from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, event, func, select
 
 from app.api.dependencies import get_current_account
-from app.db.session import AsyncSessionLocal, dispose_engine
+from app.db.session import AsyncSessionLocal, dispose_engine, engine
 from app.models import (
     Account,
     AgentConversation,
@@ -96,6 +96,48 @@ async def seed_account_profile_session(
     return account, profile, driving_session
 
 
+def make_conversation(
+    session_id: str,
+    *,
+    conversation_status: str = "ACTIVE",
+    started_at: datetime = BASE_TIME,
+) -> AgentConversation:
+    ended_at = None
+    if conversation_status != "ACTIVE":
+        ended_at = started_at + timedelta(minutes=1, seconds=10)
+    return AgentConversation(
+        id=str(uuid4()),
+        session_id=session_id,
+        mode="GENERAL_ASSISTANT",
+        status=conversation_status,
+        started_at=started_at,
+        ended_at=ended_at,
+    )
+
+
+def make_message(
+    conversation_id: str,
+    *,
+    sequence_no: int,
+    role: str = "USER",
+    text: str | None = "Message",
+    intent: str | None = None,
+    input_type: str | None = "VOICE",
+    created_at: datetime = BASE_TIME,
+) -> AgentMessage:
+    return AgentMessage(
+        id=str(uuid4()),
+        conversation_id=conversation_id,
+        sequence_no=sequence_no,
+        role=role,
+        text=text,
+        intent=intent,
+        input_type=input_type,
+        metadata_json={},
+        created_at=created_at,
+    )
+
+
 async def count_messages_and_tools(conversation_ids: list[str]) -> tuple[int, int]:
     async with AsyncSessionLocal() as session:
         message_count = await session.scalar(
@@ -110,6 +152,235 @@ async def count_messages_and_tools(conversation_ids: list[str]) -> tuple[int, in
             .where(AgentMessage.conversation_id.in_(conversation_ids))
         )
     return int(message_count or 0), int(tool_count or 0)
+
+
+async def test_agent_conversation_detail_api_returns_sorted_messages_and_fixed_queries(
+    app,
+    client,
+) -> None:
+    account, _, driving_session = await seed_account_profile_session(prefix="agent-detail")
+    conversation = make_conversation(
+        driving_session.id,
+        conversation_status="COMPLETED",
+        started_at=BASE_TIME,
+    )
+
+    async with AsyncSessionLocal() as session:
+        session.add(conversation)
+        await session.flush()
+        session.add_all(
+            [
+                make_message(
+                    conversation.id,
+                    sequence_no=3,
+                    role="USER",
+                    text="Third",
+                    intent=None,
+                    input_type="TEXT",
+                    created_at=BASE_TIME + timedelta(seconds=4),
+                ),
+                make_message(
+                    conversation.id,
+                    sequence_no=1,
+                    role="USER",
+                    text="Turn down guidance volume.",
+                    intent="SET_GUIDANCE_VOLUME",
+                    input_type="VOICE",
+                    created_at=BASE_TIME + timedelta(seconds=2),
+                ),
+                make_message(
+                    conversation.id,
+                    sequence_no=2,
+                    role="AGENT",
+                    text="Guidance volume is now 50.",
+                    intent=None,
+                    input_type="SYSTEM_EVENT",
+                    created_at=BASE_TIME + timedelta(seconds=3),
+                ),
+            ]
+        )
+        await session.commit()
+
+    override_current_account(app, account)
+    statements: list[str] = []
+
+    def before_cursor_execute(
+        conn,
+        cursor,
+        statement: str,
+        parameters,
+        context,
+        executemany,
+    ) -> None:
+        lowered = statement.lower()
+        table_names = (
+            "agent_conversations",
+            "agent_messages",
+            "driving_sessions",
+            "driver_profiles",
+        )
+        if lowered.lstrip().startswith("select") and any(name in lowered for name in table_names):
+            statements.append(statement)
+
+    event.listen(engine.sync_engine, "before_cursor_execute", before_cursor_execute)
+    try:
+        response = await client.get(f"/api/v1/agent/conversations/{conversation.id}")
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", before_cursor_execute)
+
+    try:
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["id"] == conversation.id
+        assert payload["sessionId"] == driving_session.id
+        assert payload["mode"] == "GENERAL_ASSISTANT"
+        assert payload["status"] == "COMPLETED"
+        assert payload["startedAt"] == "2026-06-28T03:10:00.000000Z"
+        assert payload["endedAt"] == "2026-06-28T03:11:10.000000Z"
+        assert [message["sequenceNo"] for message in payload["messages"]] == [1, 2, 3]
+        assert payload["messages"][0]["role"] == "USER"
+        assert payload["messages"][0]["text"] == "Turn down guidance volume."
+        assert payload["messages"][0]["intent"] == "SET_GUIDANCE_VOLUME"
+        assert payload["messages"][0]["inputType"] == "VOICE"
+        assert payload["messages"][0]["createdAt"] == "2026-06-28T03:10:02.000000Z"
+        assert payload["messages"][1]["intent"] is None
+
+        assert "profileId" not in payload
+        assert "accountId" not in payload
+        assert "triggerBehaviorEventId" not in payload
+        assert "toolExecutions" not in payload
+        assert "conversationId" not in payload["messages"][0]
+        assert "metadataJson" not in payload["messages"][0]
+        assert "toolExecutionId" not in payload["messages"][0]
+        assert len(statements) == 2
+    finally:
+        app.dependency_overrides.clear()
+        await delete_test_accounts(account.id)
+        await dispose_engine()
+
+
+async def test_agent_conversation_detail_api_returns_statuses_and_empty_messages(
+    app,
+    client,
+) -> None:
+    account, _, driving_session = await seed_account_profile_session(
+        prefix="agent-detail-status",
+    )
+    conversations = [
+        make_conversation(
+            driving_session.id,
+            conversation_status="ACTIVE",
+            started_at=BASE_TIME,
+        ),
+        make_conversation(
+            driving_session.id,
+            conversation_status="COMPLETED",
+            started_at=BASE_TIME + timedelta(minutes=5),
+        ),
+        make_conversation(
+            driving_session.id,
+            conversation_status="ABORTED",
+            started_at=BASE_TIME + timedelta(minutes=10),
+        ),
+    ]
+
+    async with AsyncSessionLocal() as session:
+        session.add_all(conversations)
+        await session.commit()
+
+    override_current_account(app, account)
+
+    try:
+        for conversation in conversations:
+            response = await client.get(f"/api/v1/agent/conversations/{conversation.id}")
+            assert response.status_code == 200
+            payload = response.json()
+            assert payload["id"] == conversation.id
+            assert payload["status"] == conversation.status
+            assert payload["messages"] == []
+            if conversation.status == "ACTIVE":
+                assert payload["endedAt"] is None
+            else:
+                assert payload["endedAt"].endswith("Z")
+    finally:
+        app.dependency_overrides.clear()
+        await delete_test_accounts(account.id)
+        await dispose_engine()
+
+
+async def test_agent_conversation_detail_api_errors(app, client) -> None:
+    current_account = make_account("agent-detail-current")
+    other_account = make_account("agent-detail-other")
+    current_profile = make_profile(current_account.id, "Current Agent Detail")
+    other_profile = make_profile(other_account.id, "Other Agent Detail")
+    current_session = make_session(current_profile.id, started_at=BASE_TIME)
+    other_session = make_session(other_profile.id, started_at=BASE_TIME)
+    other_conversation = make_conversation(other_session.id, started_at=BASE_TIME)
+
+    async with AsyncSessionLocal() as session:
+        session.add_all([current_account, other_account])
+        await session.flush()
+        session.add_all([current_profile, other_profile])
+        await session.flush()
+        session.add_all([current_session, other_session])
+        await session.flush()
+        session.add(other_conversation)
+        await session.commit()
+
+    override_current_account(app, current_account)
+
+    try:
+        other_response = await client.get(
+            f"/api/v1/agent/conversations/{other_conversation.id}",
+        )
+        missing_response = await client.get(f"/api/v1/agent/conversations/{uuid4()}")
+        invalid_response = await client.get("/api/v1/agent/conversations/not-a-uuid")
+
+        assert other_response.status_code == 404
+        assert other_response.json()["error"] == "CONVERSATION_NOT_FOUND"
+        assert missing_response.status_code == 404
+        assert missing_response.json()["error"] == "CONVERSATION_NOT_FOUND"
+        assert invalid_response.status_code == 422
+        assert invalid_response.json()["error"] == "INVALID_CONVERSATION_ID"
+
+        for response in [other_response, missing_response, invalid_response]:
+            assert "detail" not in response.json()
+    finally:
+        app.dependency_overrides.clear()
+        await delete_test_accounts(current_account.id, other_account.id)
+        await dispose_engine()
+
+
+async def test_agent_conversation_create_then_detail_returns_empty_messages(
+    app,
+    client,
+) -> None:
+    account, _, driving_session = await seed_account_profile_session(prefix="agent-create-get")
+    override_current_account(app, account)
+
+    try:
+        create_response = await client.post(
+            f"/api/v1/driving-sessions/{driving_session.id}/agent/conversations",
+            json={"mode": "GENERAL_ASSISTANT"},
+        )
+        assert create_response.status_code == 201
+        created = create_response.json()
+
+        detail_response = await client.get(
+            f"/api/v1/agent/conversations/{created['id']}",
+        )
+
+        assert detail_response.status_code == 200
+        payload = detail_response.json()
+        assert payload["id"] == created["id"]
+        assert payload["sessionId"] == driving_session.id
+        assert payload["status"] == "ACTIVE"
+        assert payload["endedAt"] is None
+        assert payload["messages"] == []
+    finally:
+        app.dependency_overrides.clear()
+        await delete_test_accounts(account.id)
+        await dispose_engine()
 
 
 async def test_agent_conversation_create_api_inserts_container_only(app, client) -> None:

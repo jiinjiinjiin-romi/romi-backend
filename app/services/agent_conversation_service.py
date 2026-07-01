@@ -8,10 +8,15 @@ from app.core.enums import ConversationMode, ConversationStatus, DrivingSessionS
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import AppException
 from app.core.time import utc_now_for_mysql_datetime
-from app.models import Account, AgentConversation
+from app.models import Account, AgentConversation, AgentMessage
 from app.repositories.agent_conversation_repository import AgentConversationRepository
 from app.repositories.driving_session_repository import DrivingSessionRepository
-from app.schemas.agent import AgentConversationCreateRequest, AgentConversationCreateResponse
+from app.schemas.agent import (
+    AgentConversationCreateRequest,
+    AgentConversationCreateResponse,
+    AgentConversationDetailResponse,
+    AgentMessageResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +72,34 @@ class AgentConversationService:
             logger.exception("Agent conversation database error session_id=%s", session_id)
             raise self._internal_error("Failed to start agent conversation.") from exc
 
+    async def get_conversation(
+        self,
+        account: Account,
+        conversation_id: str,
+    ) -> AgentConversationDetailResponse:
+        try:
+            conversation = await self.agent_conversation_repository.get_owned_by_id(
+                conversation_id=conversation_id,
+                account_id=account.id,
+            )
+            if conversation is None:
+                raise self._conversation_not_found()
+
+            messages = await self.agent_conversation_repository.list_messages(
+                conversation_id=conversation.id,
+            )
+        except AppException:
+            raise
+        except SQLAlchemyError as exc:
+            await self.session.rollback()
+            logger.exception(
+                "Agent conversation detail query failed conversation_id=%s",
+                conversation_id,
+            )
+            raise self._internal_error("Failed to load agent conversation.") from exc
+
+        return self._to_detail_response(conversation, messages)
+
     @classmethod
     def _validate_create_mode(cls, mode: str) -> None:
         if mode == ConversationMode.SAFETY.value:
@@ -85,6 +118,42 @@ class AgentConversationService:
             mode=conversation.mode,
             status=conversation.status,
             started_at=conversation.started_at,
+        )
+
+    @classmethod
+    def _to_detail_response(
+        cls,
+        conversation: AgentConversation,
+        messages: list[AgentMessage],
+    ) -> AgentConversationDetailResponse:
+        return AgentConversationDetailResponse(
+            id=conversation.id,
+            session_id=conversation.session_id,
+            mode=conversation.mode,
+            status=conversation.status,
+            started_at=conversation.started_at,
+            ended_at=conversation.ended_at,
+            messages=[cls._to_message_response(message) for message in messages],
+        )
+
+    @staticmethod
+    def _to_message_response(message: AgentMessage) -> AgentMessageResponse:
+        return AgentMessageResponse(
+            id=message.id,
+            sequence_no=message.sequence_no,
+            role=message.role,
+            text=message.text,
+            intent=message.intent,
+            input_type=message.input_type,
+            created_at=message.created_at,
+        )
+
+    @staticmethod
+    def _conversation_not_found() -> AppException:
+        return AppException(
+            "Agent 대화를 찾을 수 없습니다.",
+            status_code=status.HTTP_404_NOT_FOUND,
+            error_code=ErrorCode.CONVERSATION_NOT_FOUND,
         )
 
     @staticmethod
