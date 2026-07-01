@@ -5,6 +5,7 @@ from app.api.v1.endpoints import (
     driving_sessions,
     health,
     profiles,
+    reports,
     saved_places,
     search_histories,
 )
@@ -15,5 +16,6 @@ router.include_router(bootstrap.router)
 router.include_router(health.router)
 router.include_router(driving_sessions.router)
 router.include_router(profiles.router)
+router.include_router(reports.router)
 router.include_router(saved_places.router)
 router.include_router(search_histories.router)

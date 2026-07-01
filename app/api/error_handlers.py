@@ -54,6 +54,12 @@ AGENT_CONVERSATION_VALIDATION_MESSAGES: dict[str, str] = {
     ErrorCode.INVALID_CONVERSATION_MODE.value: "지원하지 않는 Agent 대화 모드입니다.",
 }
 
+REPORT_VALIDATION_MESSAGES: dict[str, str] = {
+    ErrorCode.INVALID_REPORT_PERIOD.value: "리포트 조회 기간을 올바르게 입력해 주세요.",
+    ErrorCode.INVALID_PAGE.value: "페이지 번호는 1 이상이어야 합니다.",
+    ErrorCode.INVALID_PAGE_SIZE.value: "페이지 크기는 1 이상 100 이하로 설정해야 합니다.",
+}
+
 MISSING_FIELD_ERROR_CODES: dict[str, ErrorCode] = {
     "displayName": ErrorCode.INVALID_DISPLAY_NAME,
     "display_name": ErrorCode.INVALID_DISPLAY_NAME,
@@ -265,6 +271,35 @@ def _agent_conversation_validation_error(
     return _driving_session_validation_error(errors, path)
 
 
+def _report_validation_error(errors: list[dict[str, object]]) -> tuple[str, str] | None:
+    if not errors:
+        return None
+
+    first_error = errors[0]
+    loc = first_error.get("loc", ())
+    field = str(loc[-1]) if isinstance(loc, tuple | list) and loc else ""
+
+    if field in {"periodStart", "periodEnd"}:
+        return (
+            ErrorCode.INVALID_REPORT_PERIOD.value,
+            REPORT_VALIDATION_MESSAGES[ErrorCode.INVALID_REPORT_PERIOD.value],
+        )
+
+    if field == "page":
+        return (
+            ErrorCode.INVALID_PAGE.value,
+            REPORT_VALIDATION_MESSAGES[ErrorCode.INVALID_PAGE.value],
+        )
+
+    if field == "size":
+        return (
+            ErrorCode.INVALID_PAGE_SIZE.value,
+            REPORT_VALIDATION_MESSAGES[ErrorCode.INVALID_PAGE_SIZE.value],
+        )
+
+    return None
+
+
 class ErrorResponse(ApiBaseModel):
     status: int
     message: str
@@ -317,6 +352,9 @@ async def validation_exception_handler(
         else:
             mapped_error = _driving_session_validation_error(exc.errors(), path)
             log_label = "Driving session"
+    elif "/reports/" in path:
+        mapped_error = _report_validation_error(exc.errors())
+        log_label = "Report"
     elif "/search-histories" in path:
         mapped_error = _query_validation_error(exc.errors())
         log_label = "Query"

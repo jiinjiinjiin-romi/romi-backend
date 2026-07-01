@@ -47,6 +47,10 @@ Do not use `Base.metadata.create_all()` for application schema management.
   - `GET /api/v1/profiles/{profileId}/driving-sessions`
 - Agent Conversation REST API:
   - `POST /api/v1/driving-sessions/{sessionId}/agent/conversations`
+- Report Read REST API:
+  - `GET /api/v1/profiles/{profileId}/reports/summary`
+  - `GET /api/v1/profiles/{profileId}/reports/behavior-events`
+  - `GET /api/v1/profiles/{profileId}/reports/sessions`
 - Docker Compose stack for backend and MySQL
 - Ruff, pytest, compileall, OpenAPI, and smoke checks
 
@@ -55,7 +59,7 @@ Do not use `Base.metadata.create_all()` for application schema management.
 - Login, JWT, passwords, roles, or authority management
 - Account CRUD API
 - Search History creation REST API
-- Agent messages, Gemini handling, ToolExecution handling, Report, and Report Export APIs
+- Agent messages, Gemini handling, ToolExecution handling, and Report Export APIs
 - WebSocket
 - ViT inference, Gemini calls, email delivery, report file generation, and risk policy services
 
@@ -116,6 +120,9 @@ If migration fails, seed and Uvicorn do not run. If seed fails, Uvicorn does not
 - Driving Session API: `http://localhost:8000/api/v1/driving-sessions`
 - Driving Session History API: `http://localhost:8000/api/v1/profiles/{profileId}/driving-sessions`
 - Agent Conversation API: `http://localhost:8000/api/v1/driving-sessions/{sessionId}/agent/conversations`
+- Report Summary API: `http://localhost:8000/api/v1/profiles/{profileId}/reports/summary`
+- Report Behavior API: `http://localhost:8000/api/v1/profiles/{profileId}/reports/behavior-events`
+- Report Sessions API: `http://localhost:8000/api/v1/profiles/{profileId}/reports/sessions`
 
 ## Profile API Example
 
@@ -277,6 +284,26 @@ $conversation = Invoke-RestMethod `
     -Body $conversationBody
 ```
 
+## Report Read API Example
+
+Report dates are Asia/Seoul calendar dates. The backend converts them to UTC
+half-open `started_at` bounds and includes only `COMPLETED` and `ABORTED`
+sessions. These endpoints are read-only and do not create `report_exports` rows.
+
+```powershell
+Invoke-RestMethod `
+    -Method Get `
+    -Uri "http://localhost:8000/api/v1/profiles/$($profile.id)/reports/summary?periodStart=2026-01-01&periodEnd=2026-12-31"
+
+Invoke-RestMethod `
+    -Method Get `
+    -Uri "http://localhost:8000/api/v1/profiles/$($profile.id)/reports/behavior-events?periodStart=2026-01-01&periodEnd=2026-12-31&behaviorTypes=DROWSINESS,PHONE_USE"
+
+Invoke-RestMethod `
+    -Method Get `
+    -Uri "http://localhost:8000/api/v1/profiles/$($profile.id)/reports/sessions?periodStart=2026-01-01&periodEnd=2026-12-31&page=1&size=20"
+```
+
 ## Logs And Status
 
 ```bash
@@ -354,7 +381,7 @@ Latest verified result on 2026-07-01 KST / 2026-06-30 UTC:
 ```text
 docker compose up --build -d -> backend/mysql healthy
 ruff check . -> passed
-pytest -ra -> 225 passed
+pytest -ra -> 255 passed
 python -m compileall app -> passed
 Saved Place MySQL Integration -> passed
 Search History MySQL Integration -> passed
@@ -362,21 +389,26 @@ Driving Session MySQL/API Integration -> passed
 Driving Session concurrent start Integration -> passed
 Driving Session Timeline/Location MySQL Integration -> passed
 Agent Conversation MySQL/API Integration -> passed
+Report Summary/Behavior/Sessions MySQL Integration -> passed
+Report Period Unit -> passed
+Report Sessions N+1 guard -> 2 fixed report-table SELECT statements
 Session end conversation-abort regression -> passed
 Concurrent fixed-place/favorite tests -> passed
-PowerShell smoke -> health DEGRADED with vitModel DOWN
+PowerShell smoke -> health DEGRADED with vitModel/Gemini/email DOWN
 PowerShell smoke -> no live ACTIVE session, so 201 Agent create smoke skipped
 PowerShell smoke -> invalid Agent sessionId returned 422 INVALID_SESSION_ID
-OpenAPI live check -> required 3-4 path present with POST only
+PowerShell report smoke -> three report read APIs returned 200 zero/null/empty responses
+PowerShell report error smoke -> INVALID_REPORT_PERIOD and INVALID_BEHAVIOR_TYPE verified
+OpenAPI live check -> required 3-5A paths present with GET only
 Swagger /docs -> 200 OK
 Alembic current/head -> 0004_agent_report_tables
 ```
 
-No Alembic revision was created for 3-4, and the DB schema did not change.
-safetyScore is intentionally null until the future risk/safety score policy is
-implemented. The Agent conversation REST API creates only the conversation
-container; Agent messages, Tool executions, Gemini handling, and WebSocket
-utterance handling remain future work.
+No Alembic revision was created for 3-5A, and the DB schema did not change.
+safetyScore is intentionally nullable until the future risk/safety score policy
+is implemented. The report read APIs aggregate stored data on request. Report
+Export, PDF rendering, file download, email sending, Agent messages, Tool
+executions, Gemini handling, and WebSocket utterance handling remain future work.
 
 ## Stop Containers
 
