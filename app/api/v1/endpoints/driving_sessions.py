@@ -10,6 +10,7 @@ from app.integrations.driver_monitoring import (
     DriverMonitoringReadiness,
     HealthDriverMonitoringReadiness,
 )
+from app.schemas.agent import AgentConversationCreateRequest, AgentConversationCreateResponse
 from app.schemas.driving_session import (
     ActiveDrivingSessionResponse,
     DrivingSessionDetailResponse,
@@ -21,6 +22,7 @@ from app.schemas.driving_session import (
     DrivingSessionStartResponse,
     DrivingSessionTimelineResponse,
 )
+from app.services.agent_conversation_service import AgentConversationService
 from app.services.driving_session_service import DrivingSessionService
 from app.utils.uuid import normalize_uuid_string
 
@@ -52,6 +54,16 @@ def get_driving_session_service(
 DrivingSessionServiceDep = Annotated[
     DrivingSessionService,
     Depends(get_driving_session_service),
+]
+
+
+def get_agent_conversation_service(session: DbSession) -> AgentConversationService:
+    return AgentConversationService(session=session)
+
+
+AgentConversationServiceDep = Annotated[
+    AgentConversationService,
+    Depends(get_agent_conversation_service),
 ]
 
 
@@ -174,6 +186,42 @@ async def get_driving_session_locations(
         from_value=from_value,
         to_value=to_value,
         limit=limit,
+    )
+
+
+@router.post(
+    "/driving-sessions/{sessionId}/agent/conversations",
+    response_model=AgentConversationCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        403: {
+            "model": ErrorResponse,
+            "description": "SAFETY_CONVERSATION_NOT_ALLOWED",
+        },
+        404: {
+            "model": ErrorResponse,
+            "description": "SESSION_NOT_FOUND",
+        },
+        409: {
+            "model": ErrorResponse,
+            "description": "SESSION_NOT_ACTIVE",
+        },
+        422: {
+            "model": ErrorResponse,
+            "description": "INVALID_SESSION_ID or INVALID_CONVERSATION_MODE",
+        },
+    },
+)
+async def start_agent_conversation(
+    session_id: SessionPath,
+    request: AgentConversationCreateRequest,
+    current_account: CurrentAccount,
+    service: AgentConversationServiceDep,
+) -> AgentConversationCreateResponse:
+    return await service.start_general_conversation(
+        current_account,
+        parse_session_id(session_id),
+        request,
     )
 
 

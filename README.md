@@ -45,6 +45,8 @@ Do not use `Base.metadata.create_all()` for application schema management.
   - `GET /api/v1/driving-sessions/{sessionId}/locations`
   - `POST /api/v1/driving-sessions/{sessionId}/end`
   - `GET /api/v1/profiles/{profileId}/driving-sessions`
+- Agent Conversation REST API:
+  - `POST /api/v1/driving-sessions/{sessionId}/agent/conversations`
 - Docker Compose stack for backend and MySQL
 - Ruff, pytest, compileall, OpenAPI, and smoke checks
 
@@ -53,7 +55,7 @@ Do not use `Base.metadata.create_all()` for application schema management.
 - Login, JWT, passwords, roles, or authority management
 - Account CRUD API
 - Search History creation REST API
-- Agent, Report, and Report Export APIs
+- Agent messages, Gemini handling, ToolExecution handling, Report, and Report Export APIs
 - WebSocket
 - ViT inference, Gemini calls, email delivery, report file generation, and risk policy services
 
@@ -113,6 +115,7 @@ If migration fails, seed and Uvicorn do not run. If seed fails, Uvicorn does not
 - Search Histories API: `http://localhost:8000/api/v1/profiles/{profileId}/search-histories`
 - Driving Session API: `http://localhost:8000/api/v1/driving-sessions`
 - Driving Session History API: `http://localhost:8000/api/v1/profiles/{profileId}/driving-sessions`
+- Agent Conversation API: `http://localhost:8000/api/v1/driving-sessions/{sessionId}/agent/conversations`
 
 ## Profile API Example
 
@@ -255,6 +258,25 @@ Invoke-RestMethod `
     -Uri "http://localhost:8000/api/v1/profiles/$($profile.id)/driving-sessions?page=1&size=20"
 ```
 
+## Agent Conversation API Example
+
+This endpoint starts a new general Agent conversation container for an existing
+ACTIVE driving session. It creates one `agent_conversations` row only; Agent
+messages, Tool executions, Gemini calls, and WebSocket utterance handling are
+future steps.
+
+```powershell
+$conversationBody = @{
+    mode = "GENERAL_ASSISTANT"
+} | ConvertTo-Json
+
+$conversation = Invoke-RestMethod `
+    -Method Post `
+    -Uri "http://localhost:8000/api/v1/driving-sessions/$($session.id)/agent/conversations" `
+    -ContentType "application/json" `
+    -Body $conversationBody
+```
+
 ## Logs And Status
 
 ```bash
@@ -330,25 +352,31 @@ curl -i http://localhost:8000/openapi.json
 Latest verified result on 2026-07-01 KST / 2026-06-30 UTC:
 
 ```text
+docker compose up --build -d -> backend/mysql healthy
 ruff check . -> passed
-pytest -ra -> 207 passed
+pytest -ra -> 225 passed
 python -m compileall app -> passed
 Saved Place MySQL Integration -> passed
 Search History MySQL Integration -> passed
 Driving Session MySQL/API Integration -> passed
 Driving Session concurrent start Integration -> passed
 Driving Session Timeline/Location MySQL Integration -> passed
+Agent Conversation MySQL/API Integration -> passed
+Session end conversation-abort regression -> passed
 Concurrent fixed-place/favorite tests -> passed
-PowerShell smoke -> MODEL_NOT_AVAILABLE path verified because vitModel is DOWN
-OpenAPI live check -> required 3-3B paths present
+PowerShell smoke -> health DEGRADED with vitModel DOWN
+PowerShell smoke -> no live ACTIVE session, so 201 Agent create smoke skipped
+PowerShell smoke -> invalid Agent sessionId returned 422 INVALID_SESSION_ID
+OpenAPI live check -> required 3-4 path present with POST only
 Swagger /docs -> 200 OK
 Alembic current/head -> 0004_agent_report_tables
 ```
 
-No Alembic revision was created for 3-3B, and the DB schema did not change.
+No Alembic revision was created for 3-4, and the DB schema did not change.
 safetyScore is intentionally null until the future risk/safety score policy is
-implemented. Timeline and location APIs are read-only; they do not create,
-update, delete, commit, or finalize driving-session data.
+implemented. The Agent conversation REST API creates only the conversation
+container; Agent messages, Tool executions, Gemini handling, and WebSocket
+utterance handling remain future work.
 
 ## Stop Containers
 

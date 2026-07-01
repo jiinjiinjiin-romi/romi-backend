@@ -50,6 +50,10 @@ DRIVING_SESSION_VALIDATION_MESSAGES: dict[str, str] = {
     ),
 }
 
+AGENT_CONVERSATION_VALIDATION_MESSAGES: dict[str, str] = {
+    ErrorCode.INVALID_CONVERSATION_MODE.value: "지원하지 않는 Agent 대화 모드입니다.",
+}
+
 MISSING_FIELD_ERROR_CODES: dict[str, ErrorCode] = {
     "displayName": ErrorCode.INVALID_DISPLAY_NAME,
     "display_name": ErrorCode.INVALID_DISPLAY_NAME,
@@ -224,6 +228,43 @@ def _driving_session_validation_error(
     return None
 
 
+def _agent_conversation_validation_error(
+    errors: list[dict[str, object]],
+    path: str,
+) -> tuple[str, str] | None:
+    if not errors:
+        return None
+
+    first_error = errors[0]
+    error_type = str(first_error.get("type", ""))
+    loc = first_error.get("loc", ())
+    loc_parts = [str(part) for part in loc] if isinstance(loc, tuple | list) else []
+    field = loc_parts[-1] if loc_parts else ""
+
+    if field in {"sessionId", "session_id"}:
+        return _driving_message(ErrorCode.INVALID_SESSION_ID)
+
+    if (
+        field in {"mode"}
+        or error_type == ErrorCode.INVALID_CONVERSATION_MODE.value
+        or error_type
+        in {
+            "missing",
+            "extra_forbidden",
+            "string_type",
+            "model_attributes_type",
+        }
+    ):
+        return (
+            ErrorCode.INVALID_CONVERSATION_MODE.value,
+            AGENT_CONVERSATION_VALIDATION_MESSAGES[
+                ErrorCode.INVALID_CONVERSATION_MODE.value
+            ],
+        )
+
+    return _driving_session_validation_error(errors, path)
+
+
 class ErrorResponse(ApiBaseModel):
     status: int
     message: str
@@ -270,8 +311,12 @@ async def validation_exception_handler(
 ) -> JSONResponse:
     path = request.url.path
     if "/driving-sessions" in path:
-        mapped_error = _driving_session_validation_error(exc.errors(), path)
-        log_label = "Driving session"
+        if "/agent/conversations" in path:
+            mapped_error = _agent_conversation_validation_error(exc.errors(), path)
+            log_label = "Agent conversation"
+        else:
+            mapped_error = _driving_session_validation_error(exc.errors(), path)
+            log_label = "Driving session"
     elif "/search-histories" in path:
         mapped_error = _query_validation_error(exc.errors())
         log_label = "Query"
