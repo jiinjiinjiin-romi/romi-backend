@@ -52,6 +52,7 @@ Do not use `Base.metadata.create_all()` for application schema management.
   - `GET /api/v1/profiles/{profileId}/reports/summary`
   - `GET /api/v1/profiles/{profileId}/reports/behavior-events`
   - `GET /api/v1/profiles/{profileId}/reports/sessions`
+- REST 3-6 integration, regression, and OpenAPI contract verification
 - Docker Compose stack for backend and MySQL
 - Ruff, pytest, compileall, OpenAPI, and smoke checks
 
@@ -387,8 +388,10 @@ Latest verified result on 2026-07-01 KST / 2026-06-30 UTC:
 ```text
 docker compose up --build -d -> backend/mysql healthy
 ruff check . -> passed
-pytest -ra -> 266 passed
+pytest -ra -> 272 passed
 python -m compileall app -> passed
+OpenAPI Contract Test -> passed
+REST E2E Integration -> passed
 Saved Place MySQL Integration -> passed
 Search History MySQL Integration -> passed
 Driving Session MySQL/API Integration -> passed
@@ -401,24 +404,24 @@ Agent Conversation POST -> GET messages=[] flow -> passed
 Report Summary/Behavior/Sessions MySQL Integration -> passed
 Report Period Unit -> passed
 Report Sessions N+1 guard -> 2 fixed report-table SELECT statements
+REST 3-6 ownership isolation regression -> passed
+REST 3-6 common error/204/camelCase/UTC Z regression -> passed
+REST 3-6 cascade cleanup regression -> passed
 Session end conversation-abort regression -> passed
 Concurrent fixed-place/favorite tests -> passed
-PowerShell smoke -> health DEGRADED with vitModel/Gemini/email DOWN
-PowerShell smoke -> no live ACTIVE session, so 201 Agent create smoke skipped
-PowerShell smoke -> invalid Agent conversationId returned 422 INVALID_CONVERSATION_ID
-PowerShell smoke -> missing Agent conversation returned 404 CONVERSATION_NOT_FOUND
-PowerShell report smoke -> three report read APIs returned 200 zero/null/empty responses
-PowerShell report error smoke -> INVALID_REPORT_PERIOD and INVALID_BEHAVIOR_TYPE verified
-OpenAPI live check -> required 3-4B and 3-5A paths present
+PowerShell smoke -> health DEGRADED with database UP and vitModel/Gemini/email DOWN
+PowerShell smoke -> bootstrap and profiles returned 200
+OpenAPI live check -> current 27 REST method/path contracts present
 Swagger /docs -> 200 OK
 Alembic current/head -> 0004_agent_report_tables
 ```
 
-No Alembic revision was created for 3-4B, and the DB schema did not change.
+No Alembic revision was created for 3-6, and the DB schema did not change.
 safetyScore is intentionally nullable until the future risk/safety score policy
 is implemented. The report read APIs aggregate stored data on request. Report
-Export, PDF rendering, file download, email sending, Agent messages, Tool
-executions, Gemini handling, and WebSocket utterance handling remain future work.
+Export, PDF rendering, file download, email sending, Agent message creation,
+Tool executions, Gemini handling, Demo APIs, and WebSocket utterance handling
+remain future work.
 
 ## Stop Containers
 

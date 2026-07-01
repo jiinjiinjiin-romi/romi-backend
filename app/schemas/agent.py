@@ -68,7 +68,7 @@ class AgentConversationDetailResponse(ApiBaseModel):
     status: str
     started_at: datetime
     ended_at: datetime | None
-    messages: list[AgentMessageResponse] = Field(default_factory=list)
+    messages: list[AgentMessageResponse]
 
     @field_serializer("started_at", "ended_at")
     def serialize_datetime(self, value: datetime | None) -> str | None:

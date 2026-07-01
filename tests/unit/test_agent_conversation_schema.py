@@ -104,6 +104,7 @@ def test_detail_response_serializes_empty_messages_and_nullable_fields() -> None
         status="ACTIVE",
         started_at=datetime(2026, 6, 28, 3, 30, 0),
         ended_at=None,
+        messages=[],
     )
 
     payload = response.model_dump(by_alias=True, mode="json")

@@ -23,7 +23,12 @@ from app.schemas.driving_session import (
     DrivingSessionTimelineResponse,
 )
 from app.services.agent_conversation_service import AgentConversationService
-from app.services.driving_session_service import DrivingSessionService
+from app.services.driving_session_service import (
+    DEFAULT_DRIVING_SESSION_PAGE,
+    DEFAULT_DRIVING_SESSION_SIZE,
+    MAX_DRIVING_SESSION_SIZE,
+    DrivingSessionService,
+)
 from app.utils.uuid import normalize_uuid_string
 
 router = APIRouter(tags=["driving-sessions"])
@@ -259,8 +264,12 @@ async def list_driving_sessions(
     profile_id: ProfilePath,
     current_account: CurrentAccount,
     service: DrivingSessionServiceDep,
-    page: int = Query(default=1),
-    size: int = Query(default=20),
+    page: int = Query(default=DEFAULT_DRIVING_SESSION_PAGE, ge=1),
+    size: int = Query(
+        default=DEFAULT_DRIVING_SESSION_SIZE,
+        ge=1,
+        le=MAX_DRIVING_SESSION_SIZE,
+    ),
     status_filter: str | None = Query(default=None, alias="status"),
     started_from: str | None = Query(default=None, alias="startedFrom"),
     started_to: str | None = Query(default=None, alias="startedTo"),
