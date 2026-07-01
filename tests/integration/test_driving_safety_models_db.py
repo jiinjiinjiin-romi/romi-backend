@@ -17,6 +17,7 @@ from app.models import (
     Intervention,
     LocationSample,
 )
+from app.repositories.location_sample_repository import LocationSampleRepository
 
 pytestmark = pytest.mark.skipif(
     not (os.getenv("MYSQL_HOST") and os.getenv("MYSQL_PASSWORD")),
@@ -260,6 +261,46 @@ async def test_location_sample_unique_and_coordinate_checks_are_enforced() -> No
                 recorded_at=now_utc_naive() + timedelta(seconds=5),
             )
         )
+    finally:
+        await delete_test_accounts(account_id)
+        await dispose_engine()
+
+
+async def test_location_sample_repository_add_exists_and_allows_same_time_other_session() -> None:
+    account_id, profile_ids = await create_account_and_profiles(count=2)
+    first_session_id = await create_active_session(profile_ids[0])
+    second_session_id = await create_active_session(profile_ids[1])
+    recorded_at = now_utc_naive()
+
+    try:
+        async with AsyncSessionLocal() as session:
+            repository = LocationSampleRepository(session)
+            repository.add(make_location_sample(first_session_id, recorded_at=recorded_at))
+            repository.add(
+                make_location_sample(
+                    second_session_id,
+                    recorded_at=recorded_at,
+                    latitude=37.6,
+                    longitude=127.1,
+                )
+            )
+            await session.commit()
+
+        async with AsyncSessionLocal() as session:
+            repository = LocationSampleRepository(session)
+
+            assert await repository.exists_at(
+                session_id=first_session_id,
+                recorded_at=recorded_at,
+            )
+            assert await repository.exists_at(
+                session_id=second_session_id,
+                recorded_at=recorded_at,
+            )
+            assert not await repository.exists_at(
+                session_id=first_session_id,
+                recorded_at=recorded_at + timedelta(seconds=1),
+            )
     finally:
         await delete_test_accounts(account_id)
         await dispose_engine()

@@ -77,8 +77,11 @@ class Settings(BaseSettings):
     policy_version: str = "risk-policy-1.0.0"
     ws_recommended_frame_fps: int = 5
     ws_location_interval_ms: int = 1000
+    ws_location_persist_interval_ms: int = 5000
     ws_heartbeat_interval_ms: int = 10000
     ws_heartbeat_timeout_ms: int = 30000
+    driving_moving_speed_threshold_kph: float = 5.0
+    driving_location_max_accuracy_meters: float = 100.0
     gemini_api_key: str = Field(default="", repr=False)
     gemini_model: str = ""
     email_provider: str = ""
@@ -116,6 +119,7 @@ class Settings(BaseSettings):
     @field_validator(
         "ws_recommended_frame_fps",
         "ws_location_interval_ms",
+        "ws_location_persist_interval_ms",
         "ws_heartbeat_interval_ms",
         "ws_heartbeat_timeout_ms",
     )
@@ -123,6 +127,20 @@ class Settings(BaseSettings):
     def validate_positive_websocket_setting(cls, value: int) -> int:
         if value <= 0:
             raise ValueError("WebSocket timing settings must be positive.")
+        return value
+
+    @field_validator("driving_moving_speed_threshold_kph")
+    @classmethod
+    def validate_non_negative_driving_speed_threshold(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError("Driving speed threshold must be non-negative.")
+        return value
+
+    @field_validator("driving_location_max_accuracy_meters")
+    @classmethod
+    def validate_positive_location_accuracy_threshold(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("Driving location max accuracy must be positive.")
         return value
 
     @model_validator(mode="after")

@@ -18,9 +18,12 @@ from app.core.time import utc_now_for_api_response
 from app.db.session import AsyncSessionLocal
 from app.integrations.driver_monitoring import DriverMonitoringReadiness
 from app.models import Account
+from app.policies.driving_context_policy import DrivingContextPolicy
 from app.realtime.connection_manager import ConnectionManager, ManagedConnection
 from app.realtime.heartbeat import HeartbeatController
 from app.realtime.protocol import (
+    InvalidLocationUpdateError,
+    LocationUpdateMessage,
     ProtocolError,
     WebSocketCloseCode,
     make_error_message,
@@ -28,6 +31,10 @@ from app.realtime.protocol import (
     parse_client_text_message,
 )
 from app.realtime.session_runtime import SessionRuntimeRegistry
+from app.services.location_update_service import (
+    LocationUpdateResultStatus,
+    LocationUpdateService,
+)
 from app.services.websocket_session_service import WebSocketSessionService
 from app.utils.uuid import normalize_uuid_string
 
@@ -44,6 +51,12 @@ SessionPath = Annotated[str, Path(alias="sessionId")]
 
 PROTOCOL_ERROR_MESSAGE = "현재 지원하지 않는 WebSocket 메시지입니다."
 INTERNAL_ERROR_MESSAGE = "실시간 연결 처리 중 오류가 발생했습니다."
+
+
+INVALID_LOCATION_UPDATE_MESSAGE = "Location update payload is invalid."
+STALE_LOCATION_UPDATE_MESSAGE = "Older location update was ignored."
+LOCATION_PERSIST_FAILED_MESSAGE = "Location update could not be persisted."
+SESSION_NOT_ACTIVE_MESSAGE = "Driving session is no longer active."
 
 
 @router.websocket("/driving-sessions/{sessionId}")
@@ -68,6 +81,11 @@ async def connect_driving_session_websocket(
 
     connection_manager = _connection_manager(websocket)
     runtime_registry = _runtime_registry(websocket)
+    location_update_service = _location_update_service(
+        websocket=websocket,
+        settings=settings,
+        runtime_registry=runtime_registry,
+    )
     heartbeat: HeartbeatController | None = None
 
     await websocket.accept()
@@ -103,8 +121,10 @@ async def connect_driving_session_websocket(
         await _receive_loop(
             websocket=websocket,
             session_id=parsed_session_id,
+            account_id=account.id,
             connection_manager=connection_manager,
             runtime_registry=runtime_registry,
+            location_update_service=location_update_service,
         )
     except WebSocketDisconnect:
         pass
@@ -152,8 +172,10 @@ async def _receive_loop(
     *,
     websocket: WebSocket,
     session_id: str,
+    account_id: str,
     connection_manager: ConnectionManager,
     runtime_registry: SessionRuntimeRegistry,
+    location_update_service: LocationUpdateService,
 ) -> None:
     while True:
         message = await websocket.receive()
@@ -179,6 +201,16 @@ async def _receive_loop(
 
         try:
             envelope = parse_client_text_message(text)
+        except InvalidLocationUpdateError:
+            await _send_location_error(
+                websocket=websocket,
+                session_id=session_id,
+                connection_manager=connection_manager,
+                code=ErrorCode.INVALID_LOCATION_UPDATE,
+                message=INVALID_LOCATION_UPDATE_MESSAGE,
+                recoverable=True,
+            )
+            continue
         except ProtocolError:
             await _send_protocol_error_and_close(
                 websocket=websocket,
@@ -188,10 +220,61 @@ async def _receive_loop(
             return
 
         now = utc_now_for_api_response()
-        await runtime_registry.touch_message(session_id, now)
         if envelope.type == "PONG":
+            await runtime_registry.touch_message(session_id, now)
             await runtime_registry.touch_heartbeat(session_id, now)
             continue
+
+        if isinstance(envelope, LocationUpdateMessage):
+            result = await location_update_service.handle(
+                account_id=account_id,
+                session_id=session_id,
+                message=envelope,
+                received_at=now,
+            )
+            if result.status in {
+                LocationUpdateResultStatus.UPDATED_ONLY,
+                LocationUpdateResultStatus.PERSISTED,
+                LocationUpdateResultStatus.DUPLICATE,
+            }:
+                continue
+
+            if result.status == LocationUpdateResultStatus.STALE:
+                await _send_location_error(
+                    websocket=websocket,
+                    session_id=session_id,
+                    connection_manager=connection_manager,
+                    code=ErrorCode.STALE_LOCATION_UPDATE,
+                    message=STALE_LOCATION_UPDATE_MESSAGE,
+                    recoverable=True,
+                )
+                continue
+
+            if result.status == LocationUpdateResultStatus.PERSIST_FAILED:
+                await _send_location_error(
+                    websocket=websocket,
+                    session_id=session_id,
+                    connection_manager=connection_manager,
+                    code=ErrorCode.LOCATION_PERSIST_FAILED,
+                    message=LOCATION_PERSIST_FAILED_MESSAGE,
+                    recoverable=True,
+                )
+                continue
+
+            if result.status == LocationUpdateResultStatus.SESSION_NOT_ACTIVE:
+                await _send_location_error(
+                    websocket=websocket,
+                    session_id=session_id,
+                    connection_manager=connection_manager,
+                    code=ErrorCode.SESSION_NOT_ACTIVE,
+                    message=SESSION_NOT_ACTIVE_MESSAGE,
+                    recoverable=False,
+                )
+                await websocket.close(
+                    code=WebSocketCloseCode.POLICY_VIOLATION,
+                    reason=ErrorCode.SESSION_NOT_ACTIVE.value,
+                )
+                return
 
         await _send_protocol_error_and_close(
             websocket=websocket,
@@ -219,6 +302,26 @@ async def _send_protocol_error_and_close(
     await websocket.close(
         code=WebSocketCloseCode.POLICY_VIOLATION,
         reason="WEBSOCKET_PROTOCOL_ERROR",
+    )
+
+
+async def _send_location_error(
+    *,
+    websocket: WebSocket,
+    session_id: str,
+    connection_manager: ConnectionManager,
+    code: ErrorCode,
+    message: str,
+    recoverable: bool,
+) -> None:
+    await connection_manager.send_json_to_current(
+        session_id,
+        websocket,
+        make_error_message(
+            code=code.value,
+            message=message,
+            recoverable=recoverable,
+        ),
     )
 
 
@@ -302,3 +405,24 @@ def _runtime_registry(websocket: WebSocket) -> SessionRuntimeRegistry:
         registry = SessionRuntimeRegistry()
         websocket.app.state.session_runtime_registry = registry
     return registry
+
+
+def _location_update_service(
+    *,
+    websocket: WebSocket,
+    settings: Settings,
+    runtime_registry: SessionRuntimeRegistry,
+) -> LocationUpdateService:
+    factory = getattr(websocket.app.state, "location_update_service_factory", None)
+    if factory is not None:
+        return factory(settings=settings, runtime_registry=runtime_registry)
+
+    policy = DrivingContextPolicy(
+        moving_speed_threshold_kph=settings.driving_moving_speed_threshold_kph,
+        max_accuracy_meters=settings.driving_location_max_accuracy_meters,
+    )
+    return LocationUpdateService(
+        runtime_registry=runtime_registry,
+        policy=policy,
+        persist_interval_ms=settings.ws_location_persist_interval_ms,
+    )

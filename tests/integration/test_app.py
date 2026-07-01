@@ -4,6 +4,31 @@ from app.main import create_app
 from app.services.health_service import DatabaseUnavailableError, HealthService
 
 
+def registered_route_paths(app) -> set[str]:
+    route_paths: set[str] = set()
+
+    for route in app.routes:
+        route_path = getattr(route, "path", None)
+        if route_path is not None:
+            route_paths.add(route_path)
+
+        effective_route_contexts = getattr(route, "effective_route_contexts", None)
+        if effective_route_contexts is None:
+            continue
+
+        for context in effective_route_contexts():
+            starlette_route = getattr(context, "starlette_route", None)
+            context_path = getattr(starlette_route, "path", None) or getattr(
+                context,
+                "path_format",
+                None,
+            )
+            if context_path:
+                route_paths.add(context_path)
+
+    return route_paths
+
+
 async def db_ok() -> None:
     return None
 
@@ -90,7 +115,7 @@ async def test_cors_disallowed_origin_keeps_rest_response_without_cors_header(cl
 
 
 def test_websocket_route_is_registered_outside_openapi(app) -> None:
-    route_paths = {getattr(route, "path", "") for route in app.routes}
+    route_paths = registered_route_paths(app)
 
     assert "/ws/v1/driving-sessions/{sessionId}" in route_paths
     assert "/ws/v1/driving-sessions/{sessionId}" not in app.openapi()["paths"]

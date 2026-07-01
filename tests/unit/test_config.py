@@ -61,8 +61,11 @@ def test_settings_exposes_default_websocket_runtime_settings() -> None:
 
     assert settings.ws_recommended_frame_fps == 5
     assert settings.ws_location_interval_ms == 1000
+    assert settings.ws_location_persist_interval_ms == 5000
     assert settings.ws_heartbeat_interval_ms == 10000
     assert settings.ws_heartbeat_timeout_ms == 30000
+    assert settings.driving_moving_speed_threshold_kph == 5.0
+    assert settings.driving_location_max_accuracy_meters == 100.0
 
 
 def test_settings_rejects_non_positive_websocket_runtime_settings() -> None:
@@ -71,6 +74,17 @@ def test_settings_rejects_non_positive_websocket_runtime_settings() -> None:
 
     with pytest.raises(ValidationError):
         Settings(ws_location_interval_ms=0)
+
+    with pytest.raises(ValidationError):
+        Settings(ws_location_persist_interval_ms=0)
+
+
+def test_settings_rejects_invalid_driving_context_thresholds() -> None:
+    with pytest.raises(ValidationError):
+        Settings(driving_moving_speed_threshold_kph=-0.1)
+
+    with pytest.raises(ValidationError):
+        Settings(driving_location_max_accuracy_meters=0)
 
 
 def test_settings_rejects_heartbeat_timeout_not_greater_than_interval() -> None:

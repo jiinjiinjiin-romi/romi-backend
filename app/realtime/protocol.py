@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
+from uuid import UUID
 
 from pydantic import ConfigDict, ValidationError, field_serializer, field_validator
 
+from app.core.enums import LocationSource
 from app.core.time import ensure_utc_datetime, format_utc_datetime, utc_now_for_api_response
 from app.schemas.base import ApiBaseModel, to_camel
 
@@ -28,9 +31,14 @@ class ServerMessageType(StrEnum):
 
 class ClientMessageType(StrEnum):
     PONG = "PONG"
+    LOCATION_UPDATE = "LOCATION_UPDATE"
 
 
 class ProtocolError(Exception):
+    pass
+
+
+class InvalidLocationUpdateError(ProtocolError):
     pass
 
 
@@ -84,11 +92,82 @@ class ClientEnvelope(StrictApiModel):
         return ensure_utc_datetime(value)
 
 
-def parse_client_text_message(raw_text: str) -> ClientEnvelope:
+class PongMessage(ClientEnvelope):
+    type: ClientMessageType = ClientMessageType.PONG
+
+
+class LocationUpdatePayload(StrictApiModel):
+    latitude: float
+    longitude: float
+    speed_kph: float | None = None
+    accuracy_meters: float | None = None
+    source: LocationSource
+
+    @field_validator("latitude", mode="before")
+    @classmethod
+    def validate_latitude(cls, value: object) -> float:
+        coordinate = _validate_finite_number(value, "latitude must be a finite number.")
+        if coordinate < -90 or coordinate > 90:
+            raise ValueError("latitude must be between -90 and 90.")
+        return coordinate
+
+    @field_validator("longitude", mode="before")
+    @classmethod
+    def validate_longitude(cls, value: object) -> float:
+        coordinate = _validate_finite_number(value, "longitude must be a finite number.")
+        if coordinate < -180 or coordinate > 180:
+            raise ValueError("longitude must be between -180 and 180.")
+        return coordinate
+
+    @field_validator("speed_kph", "accuracy_meters", mode="before")
+    @classmethod
+    def validate_optional_non_negative_number(cls, value: object) -> float | None:
+        if value is None:
+            return None
+
+        number = _validate_finite_number(value, "value must be a finite number.")
+        if number < 0:
+            raise ValueError("value must be greater than or equal to 0.")
+        return number
+
+    @field_validator("source")
+    @classmethod
+    def validate_gps_source(cls, value: LocationSource) -> LocationSource:
+        if value != LocationSource.GPS:
+            raise ValueError("LOCATION_UPDATE source must be GPS.")
+        return value
+
+
+class LocationUpdateMessage(ClientEnvelope):
+    type: ClientMessageType = ClientMessageType.LOCATION_UPDATE
+    request_id: UUID
+    payload: LocationUpdatePayload
+
+
+ClientMessage = PongMessage | LocationUpdateMessage
+
+
+def parse_client_text_message(raw_text: str) -> ClientMessage:
     try:
         payload = json.loads(raw_text)
     except json.JSONDecodeError as exc:
         raise ProtocolError("Invalid JSON WebSocket message.") from exc
+
+    if not isinstance(payload, dict):
+        raise ProtocolError("Invalid WebSocket message envelope.")
+
+    message_type = payload.get("type")
+    if message_type == ClientMessageType.LOCATION_UPDATE:
+        try:
+            return LocationUpdateMessage.model_validate(payload)
+        except ValidationError as exc:
+            raise InvalidLocationUpdateError("Invalid LOCATION_UPDATE message.") from exc
+
+    if message_type == ClientMessageType.PONG:
+        try:
+            return PongMessage.model_validate(payload)
+        except ValidationError as exc:
+            raise ProtocolError("Invalid WebSocket PONG message.") from exc
 
     try:
         return ClientEnvelope.model_validate(payload)
@@ -156,3 +235,18 @@ def _server_message(
         payload=payload,
     )
     return envelope.to_message()
+
+
+def _validate_finite_number(value: object, message: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(message)
+
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(message) from exc
+
+    if not math.isfinite(number):
+        raise ValueError(message)
+
+    return number

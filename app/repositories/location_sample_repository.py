@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import LocationSample
@@ -21,6 +21,23 @@ class LocationSampleRepository:
             Coordinate(latitude=float(latitude), longitude=float(longitude))
             for latitude, longitude in result.all()
         ]
+
+    async def exists_at(
+        self,
+        *,
+        session_id: str,
+        recorded_at: datetime,
+    ) -> bool:
+        statement = select(
+            exists().where(
+                LocationSample.session_id == session_id,
+                LocationSample.recorded_at == recorded_at,
+            )
+        )
+        return bool(await self.session.scalar(statement))
+
+    def add(self, location_sample: LocationSample) -> None:
+        self.session.add(location_sample)
 
     async def list_by_session(
         self,

@@ -55,6 +55,7 @@ Do not use `Base.metadata.create_all()` for application schema management.
 - Driving Session WebSocket connection foundation:
   - `WS /ws/v1/driving-sessions/{sessionId}`
   - accept-before validation, SESSION_READY, PING/PONG heartbeat, duplicate replacement
+  - `LOCATION_UPDATE` receive path, runtime location state, driving-state policy, and throttled `location_samples` persistence
 - REST 3-6 integration, regression, and OpenAPI contract verification
 - Docker Compose stack for backend and MySQL
 - Ruff, pytest, compileall, OpenAPI, and smoke checks
@@ -65,7 +66,7 @@ Do not use `Base.metadata.create_all()` for application schema management.
 - Account CRUD API
 - Search History creation REST API
 - Agent messages, Gemini handling, ToolExecution handling, and Report Export APIs
-- WebSocket LOCATION_UPDATE, FRAME_META, binary JPEG, ViT inference, and Agent utterance handling
+- WebSocket FRAME_META, binary JPEG, ViT inference, DETECTION_UPDATE, and Agent utterance handling
 - ViT inference, Gemini calls, email delivery, report file generation, and risk policy services
 
 The default admin account is only seed data for early development. It is not a
@@ -308,6 +309,46 @@ A second WebSocket for the same session replaces the first and closes the old
 connection with `4001`. WebSocket disconnect does not end the DrivingSession;
 use `POST /api/v1/driving-sessions/{sessionId}/end` for that.
 
+Clients may send silent `LOCATION_UPDATE` messages:
+
+```json
+{
+  "type": "LOCATION_UPDATE",
+  "requestId": "48dc5bde-31c7-478a-a0a0-e9e30b78899b",
+  "occurredAt": "2026-06-28T03:10:10.000000Z",
+  "payload": {
+    "latitude": 37.5501,
+    "longitude": 127.0734,
+    "speedKph": 32.4,
+    "accuracyMeters": 8.2,
+    "source": "GPS"
+  }
+}
+```
+
+`occurredAt` must be timezone-aware and is normalized to UTC. Runtime state is
+updated for every fresh valid location. The first valid location is persisted
+immediately; later samples persist only when the server monotonic clock has
+advanced by `WS_LOCATION_PERSIST_INTERVAL_MS` since the last successful
+persistence. Normal updates do not send ACK messages. Invalid location payloads
+send recoverable `INVALID_LOCATION_UPDATE` and keep the socket open. Older
+locations send recoverable `STALE_LOCATION_UPDATE`; duplicate `occurredAt`
+values are ignored silently. DB persistence failures send recoverable
+`LOCATION_PERSIST_FAILED` and leave runtime state intact for retry. If a session
+is no longer ACTIVE at a persist point, the server sends `SESSION_NOT_ACTIVE`
+with `recoverable=false` and closes with `1008`.
+
+Driving state for LOCATION_UPDATE is currently:
+
+```text
+accuracyMeters > DRIVING_LOCATION_MAX_ACCURACY_METERS -> UNKNOWN
+speedKph is null -> UNKNOWN
+speedKph >= DRIVING_MOVING_SPEED_THRESHOLD_KPH -> MOVING
+0 <= speedKph < DRIVING_MOVING_SPEED_THRESHOLD_KPH -> TEMPORARY_STOP
+```
+
+`PARKED` is not generated from LOCATION_UPDATE in this phase.
+
 Local development commonly has ViT DOWN because `/app/artifacts/models/best_vit.pth`
 is absent, so live successful `SESSION_READY` smoke may be unavailable. The
 success path is covered by the MySQL WebSocket integration tests with explicit
@@ -431,10 +472,16 @@ curl -i http://localhost:8000/openapi.json
 Latest verified result on 2026-07-01 KST:
 
 ```text
-docker compose up --build -d -> backend/mysql healthy
-ruff check . -> passed
-pytest -ra -> 303 passed, 1 warning
-python -m compileall app -> passed
+Docker Compose verification -> backend/mysql healthy with current working tree
+Docker host port override used for this verification: BACKEND_EXPOSED_PORT=8001, MYSQL_EXPOSED_PORT=3308
+docker compose exec backend ruff check . -> passed
+docker compose exec backend python -m compileall app -> passed
+docker compose exec backend pytest -ra -> 338 passed, 0 skipped, 1 warning
+4-2 targeted Docker pytest -> 76 passed, 0 skipped, 1 warning
+MySQL-gated tests -> executed inside Docker Compose; no MYSQL_HOST/MYSQL_PASSWORD skip remains
+Live smoke -> health 200 DEGRADED with database UP, bootstrap 200, Swagger /docs 200, OpenAPI 200
+OpenAPI live check -> 27 REST method/path contracts present and WebSocket path absent from REST paths
+tzdata/ZoneInfo smoke -> tzdata 2026.2 and ZoneInfo("Asia/Seoul") passed
 OpenAPI Contract Test -> passed
 REST E2E Integration -> passed
 Saved Place MySQL Integration -> passed
@@ -470,11 +517,11 @@ Swagger /docs -> 200 OK
 Alembic current/head -> 0004_agent_report_tables
 ```
 
-No Alembic revision was created for 4-1, and the DB schema did not change.
+No Alembic revision was created for 4-2, and the DB schema did not change.
 safetyScore is intentionally nullable until the future risk/safety score policy
 is implemented. The report read APIs aggregate stored data on request. Report
 Export, PDF rendering, file download, email sending, Agent message creation,
-Tool executions, Gemini handling, Demo APIs, LOCATION_UPDATE, FRAME_META, Binary
+Tool executions, Gemini handling, Demo APIs, FRAME_META, Binary
 JPEG, ViT inference, and WebSocket utterance handling remain future work.
 
 ## Stop Containers
@@ -515,8 +562,11 @@ Settings are loaded from environment variables and `.env`.
 - `POLICY_VERSION`
 - `WS_RECOMMENDED_FRAME_FPS`
 - `WS_LOCATION_INTERVAL_MS`
+- `WS_LOCATION_PERSIST_INTERVAL_MS`
 - `WS_HEARTBEAT_INTERVAL_MS`
 - `WS_HEARTBEAT_TIMEOUT_MS`
+- `DRIVING_MOVING_SPEED_THRESHOLD_KPH`
+- `DRIVING_LOCATION_MAX_ACCURACY_METERS`
 - `GEMINI_API_KEY`
 - `GEMINI_MODEL`
 - `EMAIL_PROVIDER`
