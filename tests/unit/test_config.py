@@ -76,6 +76,18 @@ def test_settings_exposes_default_websocket_runtime_settings() -> None:
     assert settings.driving_location_max_accuracy_meters == 100.0
 
 
+def test_settings_exposes_default_tmap_proxy_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TMAP_APP_KEY", raising=False)
+    monkeypatch.delenv("TMAP_REQUEST_TIMEOUT_SECONDS", raising=False)
+    monkeypatch.delenv("TMAP_PROXY_CACHE_TTL_MS", raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.tmap_app_key == ""
+    assert settings.tmap_request_timeout_seconds == 10.0
+    assert settings.tmap_proxy_cache_ttl_ms == 30_000
+
+
 def test_settings_rejects_non_positive_websocket_runtime_settings() -> None:
     with pytest.raises(ValidationError):
         Settings(ws_recommended_frame_fps=0)
@@ -88,6 +100,14 @@ def test_settings_rejects_non_positive_websocket_runtime_settings() -> None:
 
     with pytest.raises(ValidationError):
         Settings(ws_frame_binary_timeout_ms=0)
+
+
+def test_settings_rejects_invalid_tmap_proxy_settings() -> None:
+    with pytest.raises(ValidationError):
+        Settings(tmap_request_timeout_seconds=0, _env_file=None)
+
+    with pytest.raises(ValidationError):
+        Settings(tmap_proxy_cache_ttl_ms=-1, _env_file=None)
 
 
 def test_settings_normalizes_and_validates_driver_monitoring_adapter() -> None:

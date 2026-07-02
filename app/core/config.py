@@ -72,6 +72,9 @@ class Settings(BaseSettings):
     default_admin_account_id: str = "00000000-0000-0000-0000-000000000001"
     default_admin_email: str | None = "admin@example.com"
     backend_exposed_port: int = 8000
+    tmap_app_key: str = Field(default="", repr=False)
+    tmap_request_timeout_seconds: float = 10.0
+    tmap_proxy_cache_ttl_ms: int = 30_000
     model_path: str = "/app/artifacts/models/best_vit.pth"
     model_version: str = "vit-dms-1.0.0"
     driver_monitoring_adapter: Literal["MOCK", "REAL"] = "MOCK"
@@ -167,6 +170,20 @@ class Settings(BaseSettings):
     def validate_frame_queue_max_size(cls, value: int) -> int:
         if value not in {1, 2}:
             raise ValueError("WS_FRAME_QUEUE_MAX_SIZE must be 1 or 2.")
+        return value
+
+    @field_validator("tmap_request_timeout_seconds")
+    @classmethod
+    def validate_positive_tmap_timeout(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("TMAP request timeout must be positive.")
+        return value
+
+    @field_validator("tmap_proxy_cache_ttl_ms")
+    @classmethod
+    def validate_non_negative_tmap_cache_ttl(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("TMAP proxy cache TTL must be non-negative.")
         return value
 
     @field_validator("driving_moving_speed_threshold_kph")
