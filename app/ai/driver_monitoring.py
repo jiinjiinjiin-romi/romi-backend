@@ -72,3 +72,6 @@ class DriverMonitoringAdapter(Protocol):
 
     async def predict(self, frame: InferenceFrame) -> DetectionResult:
         pass
+
+    async def aclose(self) -> None:
+        pass

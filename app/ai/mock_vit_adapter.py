@@ -24,6 +24,9 @@ class MockViTAdapter:
     async def is_ready(self) -> bool:
         return True
 
+    async def aclose(self) -> None:
+        return None
+
     async def predict(self, frame: InferenceFrame) -> DetectionResult:
         started_at = utc_now_for_api_response()
         if self._latency_ms > 0:

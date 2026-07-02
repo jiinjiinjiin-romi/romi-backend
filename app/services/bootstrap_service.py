@@ -4,6 +4,7 @@ from fastapi import status
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.driver_monitoring import DriverMonitoringAdapter
 from app.core.config import Settings
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import AppException
@@ -17,9 +18,15 @@ logger = logging.getLogger(__name__)
 
 
 class BootstrapService:
-    def __init__(self, session: AsyncSession, settings: Settings) -> None:
+    def __init__(
+        self,
+        session: AsyncSession,
+        settings: Settings,
+        driver_monitoring_adapter: DriverMonitoringAdapter,
+    ) -> None:
         self.session = session
         self.settings = settings
+        self.driver_monitoring_adapter = driver_monitoring_adapter
         self.profile_repository = ProfileRepository(session)
 
     async def get_bootstrap(self, account: Account) -> BootstrapResponse:
@@ -55,7 +62,10 @@ class BootstrapService:
         )
 
     async def _capabilities(self) -> BootstrapCapabilitiesResponse:
-        health_service = HealthService(settings=self.settings)
+        health_service = HealthService(
+            settings=self.settings,
+            driver_monitoring_adapter=self.driver_monitoring_adapter,
+        )
         return BootstrapCapabilitiesResponse(
             vit_model_available=await health_service.is_vit_model_available(),
             gemini_available=health_service.is_gemini_configured(),

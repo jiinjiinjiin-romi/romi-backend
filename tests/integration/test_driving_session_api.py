@@ -6,8 +6,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import delete, select
 
+from app.ai.driver_monitoring import InferenceFrame
 from app.api.dependencies import get_current_account
-from app.api.v1.endpoints.driving_sessions import get_driver_monitoring_readiness
 from app.core.time import utc_now_for_mysql_datetime
 from app.db.session import AsyncSessionLocal, dispose_engine
 from app.models import (
@@ -27,12 +27,19 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-class FakeReadiness:
-    def __init__(self, available: bool = True) -> None:
-        self.available = available
+class FakeDriverMonitoringAdapter:
+    model_version = "vit-dms-1.0.0"
 
-    async def is_available(self) -> bool:
-        return self.available
+    def __init__(self, ready: bool = True) -> None:
+        self.ready = ready
+        self.ready_calls = 0
+
+    async def is_ready(self) -> bool:
+        self.ready_calls += 1
+        return self.ready
+
+    async def predict(self, frame: InferenceFrame):
+        raise AssertionError("predict should not be called by REST session start")
 
 
 def start_payload(profile_id: str, **overrides: object) -> dict[str, object]:
@@ -88,11 +95,8 @@ def override_dependencies(app, account: Account, *, model_available: bool = True
     async def current_account_override() -> Account:
         return account
 
-    def readiness_override() -> FakeReadiness:
-        return FakeReadiness(model_available)
-
     app.dependency_overrides[get_current_account] = current_account_override
-    app.dependency_overrides[get_driver_monitoring_readiness] = readiness_override
+    app.state.driver_monitoring_adapter = FakeDriverMonitoringAdapter(model_available)
 
 
 async def seed_session_activity(session_id: str) -> None:
@@ -450,10 +454,12 @@ async def test_model_unavailable_returns_503(app, client) -> None:
     override_dependencies(app, account, model_available=False)
 
     try:
+        adapter = app.state.driver_monitoring_adapter
         response = await client.post("/api/v1/driving-sessions", json=start_payload(profile.id))
 
         assert response.status_code == 503
         assert response.json()["error"] == "MODEL_NOT_AVAILABLE"
+        assert adapter.ready_calls == 1
     finally:
         app.dependency_overrides.clear()
         await delete_test_accounts(account.id)

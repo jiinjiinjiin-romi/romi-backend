@@ -8,19 +8,19 @@ from fastapi import APIRouter, Depends, Path, WebSocket, status
 from fastapi.responses import JSONResponse
 from starlette.websockets import WebSocketDisconnect
 
-from app.ai.driver_monitoring import DriverMonitoringAdapter
-from app.api.dependencies import get_current_account, get_settings_dependency, load_current_account
+from app.api.dependencies import (
+    DriverMonitoringAdapterDep,
+    get_current_account,
+    get_settings_dependency,
+    load_current_account,
+)
 from app.api.error_handlers import ErrorResponse
-from app.api.v1.endpoints.driving_sessions import get_driver_monitoring_readiness
 from app.core.config import Settings
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import AppException
 from app.core.time import utc_now_for_api_response
 from app.db.session import AsyncSessionLocal
-from app.integrations.driver_monitoring import (
-    DriverMonitoringReadiness,
-    create_driver_monitoring_adapter,
-)
+from app.integrations.driver_monitoring import HealthDriverMonitoringReadiness
 from app.models import Account
 from app.policies.driving_context_policy import DrivingContextPolicy
 from app.realtime.connection_manager import ConnectionManager, ManagedConnection
@@ -53,12 +53,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["websocket"])
 
 SettingsDep = Annotated[Settings, Depends(get_settings_dependency)]
-DriverMonitoringReadinessDep = Annotated[
-    DriverMonitoringReadiness,
-    Depends(get_driver_monitoring_readiness),
-]
 SessionPath = Annotated[str, Path(alias="sessionId")]
-MODEL_NOT_AVAILABLE_MESSAGE = "Driver monitoring model is not available."
 
 PROTOCOL_ERROR_MESSAGE = "현재 지원하지 않는 WebSocket 메시지입니다."
 INTERNAL_ERROR_MESSAGE = "실시간 연결 처리 중 오류가 발생했습니다."
@@ -82,7 +77,7 @@ async def connect_driving_session_websocket(
     websocket: WebSocket,
     session_id: SessionPath,
     settings: SettingsDep,
-    readiness: DriverMonitoringReadinessDep,
+    adapter: DriverMonitoringAdapterDep,
 ) -> None:
     parsed_session_id = await _parse_session_id_or_deny(websocket, session_id)
     if parsed_session_id is None:
@@ -91,20 +86,13 @@ async def connect_driving_session_websocket(
     try:
         async with AsyncSessionLocal() as db_session:
             account = await _resolve_current_account(websocket, db_session, settings)
-            service = WebSocketSessionService(session=db_session, readiness=readiness)
+            service = WebSocketSessionService(
+                session=db_session,
+                readiness=HealthDriverMonitoringReadiness(adapter),
+            )
             await service.validate_connection(account=account, session_id=parsed_session_id)
     except AppException as exc:
         await _send_app_denial_response(websocket, exc)
-        return
-
-    adapter = _driver_monitoring_adapter(websocket, settings)
-    if not await adapter.is_ready():
-        await _send_denial_response(
-            websocket,
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            message=MODEL_NOT_AVAILABLE_MESSAGE,
-            error_code=ErrorCode.MODEL_NOT_AVAILABLE,
-        )
         return
 
     connection_manager = _connection_manager(websocket)
@@ -635,13 +623,3 @@ def _location_update_service(
         policy=policy,
         persist_interval_ms=settings.ws_location_persist_interval_ms,
     )
-
-
-def _driver_monitoring_adapter(
-    websocket: WebSocket,
-    settings: Settings,
-) -> DriverMonitoringAdapter:
-    factory = getattr(websocket.app.state, "driver_monitoring_adapter_factory", None)
-    if factory is not None:
-        return factory(settings=settings)
-    return create_driver_monitoring_adapter(settings)

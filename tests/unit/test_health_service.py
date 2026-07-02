@@ -6,6 +6,21 @@ from app.core.config import Settings
 from app.services.health_service import DatabaseUnavailableError, HealthService
 
 
+class FakeDriverMonitoringAdapter:
+    model_version = "vit-test"
+
+    def __init__(self, *, ready: bool = True) -> None:
+        self.ready = ready
+        self.ready_calls = 0
+
+    async def is_ready(self) -> bool:
+        self.ready_calls += 1
+        return self.ready
+
+    async def aclose(self) -> None:
+        return None
+
+
 async def db_ok() -> None:
     return None
 
@@ -34,8 +49,13 @@ def make_settings(**overrides: object) -> Settings:
 def make_service(
     settings: Settings,
     db_checker: Callable[[], Awaitable[None]] = db_ok,
+    adapter: FakeDriverMonitoringAdapter | None = None,
 ) -> HealthService:
-    return HealthService(settings=settings, db_checker=db_checker)
+    return HealthService(
+        settings=settings,
+        db_checker=db_checker,
+        driver_monitoring_adapter=adapter or FakeDriverMonitoringAdapter(),
+    )
 
 
 async def test_health_is_up_when_all_services_are_up(tmp_path) -> None:
@@ -88,8 +108,10 @@ async def test_mock_adapter_mode_reports_vit_available_without_model_file(tmp_pa
         model_path=str(tmp_path / "missing.pth"),
         driver_monitoring_adapter="MOCK",
     )
+    adapter = FakeDriverMonitoringAdapter(ready=True)
 
-    assert await make_service(settings).is_vit_model_available() is True
+    assert await make_service(settings, adapter=adapter).is_vit_model_available() is True
+    assert adapter.ready_calls == 1
 
 
 async def test_real_adapter_mode_reports_vit_unavailable_with_model_file(tmp_path) -> None:
@@ -99,8 +121,10 @@ async def test_real_adapter_mode_reports_vit_unavailable_with_model_file(tmp_pat
         model_path=str(existing_model),
         driver_monitoring_adapter="REAL",
     )
+    adapter = FakeDriverMonitoringAdapter(ready=False)
 
-    assert await make_service(settings).is_vit_model_available() is False
+    assert await make_service(settings, adapter=adapter).is_vit_model_available() is False
+    assert adapter.ready_calls == 1
 
 
 def test_gemini_requires_api_key_and_model() -> None:

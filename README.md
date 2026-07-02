@@ -57,7 +57,8 @@ Do not use `Base.metadata.create_all()` for application schema management.
   - accept-before validation, SESSION_READY, PING/PONG heartbeat, duplicate replacement
   - `LOCATION_UPDATE` receive path, runtime location state, driving-state policy, and throttled `location_samples` persistence
   - `FRAME_META` receive path with next-message binary JPEG pairing, recoverable frame errors, and bounded in-memory latest-frame queue
-  - connection-scoped inference worker consuming the latest-frame queue through a deterministic Mock ViT adapter
+  - app-scoped DriverMonitoringAdapter created during FastAPI lifespan startup and shared by health, bootstrap, session start, WebSocket handshake, and inference workers
+  - connection-scoped inference worker consuming the latest-frame queue through the app-scoped deterministic Mock ViT adapter
   - internal `NORMAL` detection result state, inference latency, processed-frame count, and failure count
   - `DETECTION_UPDATE` publishing for successful inference results on the current WebSocket connection
 - REST 3-6 integration, regression, and OpenAPI contract verification
@@ -223,6 +224,12 @@ policy is applied by the future writer that creates search history rows.
 `DRIVER_MONITORING_ADAPTER=REAL`, the real adapter is not implemented yet and
 the start request returns `503 MODEL_NOT_AVAILABLE`.
 
+The DriverMonitoringAdapter is an app-scoped resource. FastAPI lifespan startup
+creates one adapter and stores it in `app.state.driver_monitoring_adapter`.
+Health, bootstrap capabilities, driving-session start, WebSocket handshake, and
+the connection-scoped inference worker use that same instance. Tests can replace
+it by assigning `app.state.driver_monitoring_adapter = fake_adapter`.
+
 ```powershell
 $startBody = @{
     profileId = $profile.id
@@ -291,6 +298,10 @@ error shape as HTTP denial responses:
 409 SESSION_NOT_ACTIVE
 503 MODEL_NOT_AVAILABLE
 ```
+
+Readiness is checked on the app-scoped DriverMonitoringAdapter, and the same
+adapter instance is passed to the `InferenceWorker` after accept. WebSocket
+connections and workers do not create adapters.
 
 The first successful server message is `SESSION_READY`:
 
@@ -526,7 +537,7 @@ curl -i http://localhost:8000/docs
 curl -i http://localhost:8000/openapi.json
 ```
 
-Latest verified result on 2026-07-02 KST:
+Latest verified result on 2026-07-03 KST:
 
 ```text
 Docker Compose verification -> backend/mysql healthy with current working tree
@@ -535,12 +546,13 @@ docker compose exec backend alembic current -> 0004_agent_report_tables (head)
 docker compose exec backend alembic heads -> 0004_agent_report_tables (head)
 docker compose exec backend ruff check . -> passed
 docker compose exec backend python -m compileall app -> passed
-docker compose exec backend pytest -ra -> 395 passed, 0 skipped, 1 warning
-4-3B2 targeted Docker pytest -> 136 passed, 0 skipped, 1 warning
+docker compose exec backend pytest -ra -> 401 passed, 0 skipped, 1 warning
+4-4A targeted Docker pytest -> 143 passed, 0 skipped, 1 warning
 MySQL-gated tests -> executed inside Docker Compose; no MYSQL_HOST/MYSQL_PASSWORD skip remains
 Live smoke -> health 200 DEGRADED with database UP and vitModel UP, bootstrap 200, Swagger /docs 200, OpenAPI 200
 Live session start smoke -> MOCK mode created ACTIVE session, returned webSocketUrl, ended COMPLETED, and cleaned up profile
 Live WebSocket smoke -> SESSION_READY then DETECTION_UPDATE for FRAME_META+binary with behaviorType NORMAL and confidence 0.99
+REAL mode smoke -> health vitModel DOWN, session start 503 MODEL_NOT_AVAILABLE, WebSocket handshake 503 MODEL_NOT_AVAILABLE
 OpenAPI live check -> 27 REST method/path contracts present and WebSocket path absent from REST paths
 tzdata/ZoneInfo smoke -> tzdata 2026.2 and ZoneInfo("Asia/Seoul") passed
 OpenAPI Contract Test -> passed
@@ -561,6 +573,7 @@ SessionRuntime Unit -> passed
 Heartbeat Unit -> passed
 Driving Session WebSocket MySQL Integration -> passed
 Mock Driver Monitoring Adapter Unit -> passed
+Driver Monitoring Adapter lifecycle Unit -> passed
 Inference Worker Unit -> passed
 Report Period Unit -> passed
 Report Sessions N+1 guard -> 2 fixed report-table SELECT statements
@@ -580,7 +593,7 @@ Swagger /docs -> 200 OK
 Alembic current/head -> 0004_agent_report_tables
 ```
 
-No Alembic revision was created for 4-3B2, and the DB schema did not change.
+No Alembic revision was created for 4-4A, and the DB schema did not change.
 safetyScore is intentionally nullable until the future risk/safety score policy
 is implemented. The report read APIs aggregate stored data on request. Report
 Export, PDF rendering, file download, email sending, Agent message creation,

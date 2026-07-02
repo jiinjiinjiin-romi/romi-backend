@@ -1,3 +1,4 @@
+import inspect
 from typing import NoReturn, Protocol
 
 from app.ai.driver_monitoring import DriverMonitoringAdapter, InferenceFrame
@@ -24,6 +25,9 @@ class UnavailableDriverMonitoringAdapter:
     async def predict(self, frame: InferenceFrame) -> NoReturn:
         raise RuntimeError("REAL driver monitoring adapter is not implemented.")
 
+    async def aclose(self) -> None:
+        return None
+
 
 def create_driver_monitoring_adapter(settings: Settings) -> DriverMonitoringAdapter:
     if settings.driver_monitoring_adapter == "MOCK":
@@ -35,13 +39,19 @@ def create_driver_monitoring_adapter(settings: Settings) -> DriverMonitoringAdap
     return UnavailableDriverMonitoringAdapter(model_version=settings.model_version)
 
 
+async def close_driver_monitoring_adapter(adapter: DriverMonitoringAdapter) -> None:
+    close = getattr(adapter, "aclose", None)
+    if close is None:
+        return
+
+    result = close()
+    if inspect.isawaitable(result):
+        await result
+
+
 class HealthDriverMonitoringReadiness:
-    def __init__(
-        self,
-        settings: Settings,
-        adapter: DriverMonitoringAdapter | None = None,
-    ) -> None:
-        self.adapter = adapter or create_driver_monitoring_adapter(settings)
+    def __init__(self, adapter: DriverMonitoringAdapter) -> None:
+        self.adapter = adapter
 
     async def is_available(self) -> bool:
         return await self.adapter.is_ready()
