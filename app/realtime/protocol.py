@@ -35,6 +35,7 @@ class ServerMessageType(StrEnum):
     PING = "PING"
     PONG = "PONG"
     ERROR = "ERROR"
+    DETECTION_UPDATE = "DETECTION_UPDATE"
 
 
 class ClientMessageType(StrEnum):
@@ -77,6 +78,27 @@ class ErrorPayload(StrictApiModel):
     code: str
     message: str
     recoverable: bool
+
+
+class DetectionUpdatePayload(StrictApiModel):
+    session_id: str
+    frame_id: str
+    behavior_type: str
+    confidence: float = Field(ge=0.0, le=1.0)
+    model_version: str = Field(min_length=1)
+    captured_at: datetime
+    inference_latency_ms: int = Field(ge=0)
+
+    @field_validator("captured_at")
+    @classmethod
+    def validate_captured_at_is_timezone_aware(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("capturedAt must include timezone information.")
+        return ensure_utc_datetime(value)
+
+    @field_serializer("captured_at")
+    def serialize_captured_at(self, value: datetime) -> str:
+        return format_utc_datetime(value)
 
 
 class ServerEnvelope(StrictApiModel):
@@ -287,6 +309,33 @@ def make_error_message(
     return _server_message(
         ServerMessageType.ERROR,
         payload.model_dump(by_alias=True),
+        occurred_at=occurred_at,
+    )
+
+
+def make_detection_update_message(
+    *,
+    session_id: str,
+    frame_id: str,
+    behavior_type: str,
+    confidence: float,
+    model_version: str,
+    captured_at: datetime,
+    inference_latency_ms: int,
+    occurred_at: datetime | None = None,
+) -> dict[str, Any]:
+    payload = DetectionUpdatePayload(
+        session_id=session_id,
+        frame_id=frame_id,
+        behavior_type=behavior_type,
+        confidence=confidence,
+        model_version=model_version,
+        captured_at=captured_at,
+        inference_latency_ms=inference_latency_ms,
+    )
+    return _server_message(
+        ServerMessageType.DETECTION_UPDATE,
+        payload.model_dump(by_alias=True, mode="json"),
         occurred_at=occurred_at,
     )
 

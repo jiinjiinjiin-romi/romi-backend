@@ -6,6 +6,7 @@ from typing import Any
 
 from app.ai.driver_monitoring import DriverMonitoringAdapter, InferenceFrame
 from app.realtime.connection_manager import ConnectionManager
+from app.realtime.detection_publisher import DetectionUpdatePublisher
 from app.realtime.session_runtime import AcceptedFrame, SessionRuntimeRegistry
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,7 @@ class InferenceWorker:
         connection_manager: ConnectionManager,
         runtime_registry: SessionRuntimeRegistry,
         adapter: DriverMonitoringAdapter,
+        detection_publisher: DetectionUpdatePublisher | None = None,
     ) -> None:
         self.session_id = session_id
         self.websocket = websocket
@@ -28,6 +30,7 @@ class InferenceWorker:
         self.connection_manager = connection_manager
         self.runtime_registry = runtime_registry
         self.adapter = adapter
+        self.detection_publisher = detection_publisher
         self._task: asyncio.Task[None] | None = None
 
     @property
@@ -100,9 +103,17 @@ class InferenceWorker:
         if not await self.connection_manager.is_current(self.session_id, self.websocket):
             return
 
-        await self.runtime_registry.record_detection_result(
+        recorded = await self.runtime_registry.record_detection_result(
             self.session_id,
             connection_generation=self.connection_generation,
+            result=result,
+        )
+        if not recorded or self.detection_publisher is None:
+            return
+
+        await self.detection_publisher.publish(
+            session_id=self.session_id,
+            websocket=self.websocket,
             result=result,
         )
 

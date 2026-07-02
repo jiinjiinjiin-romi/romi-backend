@@ -59,6 +59,7 @@ Do not use `Base.metadata.create_all()` for application schema management.
   - `FRAME_META` receive path with next-message binary JPEG pairing, recoverable frame errors, and bounded in-memory latest-frame queue
   - connection-scoped inference worker consuming the latest-frame queue through a deterministic Mock ViT adapter
   - internal `NORMAL` detection result state, inference latency, processed-frame count, and failure count
+  - `DETECTION_UPDATE` publishing for successful inference results on the current WebSocket connection
 - REST 3-6 integration, regression, and OpenAPI contract verification
 - Docker Compose stack for backend and MySQL
 - Ruff, pytest, compileall, OpenAPI, and smoke checks
@@ -69,7 +70,7 @@ Do not use `Base.metadata.create_all()` for application schema management.
 - Account CRUD API
 - Search History creation REST API
 - Agent messages, Gemini handling, ToolExecution handling, and Report Export APIs
-- Real ViT inference, DETECTION_UPDATE, and Agent utterance handling
+- Real ViT inference and Agent utterance handling
 - JPEG decode/preprocessing, sliding window, behavior event creation, risk policy, and interventions
 - Gemini calls, email delivery, and report file generation
 
@@ -355,7 +356,8 @@ speedKph >= DRIVING_MOVING_SPEED_THRESHOLD_KPH -> MOVING
 `PARKED` is not generated from LOCATION_UPDATE in this phase.
 
 Clients may send camera frames with `FRAME_META` followed immediately by binary
-JPEG bytes. Successful frame ingestion is silent and does not send ACK messages:
+JPEG bytes. Successful frame ingestion has no ACK, but successful inference
+publishes `DETECTION_UPDATE`:
 
 ```json
 {
@@ -380,8 +382,27 @@ queue is full, the oldest frame is dropped and the latest frame is kept. A
 connection-scoped inference worker consumes accepted frames, calls the selected
 driver-monitoring adapter, and records internal runtime metrics/results. In
 MOCK mode the result is always `NORMAL` with confidence `0.99`.
-`DETECTION_UPDATE` is not sent yet. Frames and detection results are not written
-to DB, files, snapshots, logs, or Base64. Recoverable frame errors are
+
+```json
+{
+  "type": "DETECTION_UPDATE",
+  "occurredAt": "2026-07-02T15:20:01.200000Z",
+  "payload": {
+    "sessionId": "67371b45-204c-4d87-b8f7-8a334229a41e",
+    "frameId": "frame-3024",
+    "behaviorType": "NORMAL",
+    "confidence": 0.99,
+    "modelVersion": "vit-dms-1.0.0",
+    "capturedAt": "2026-07-02T15:20:01.123456Z",
+    "inferenceLatencyMs": 0
+  }
+}
+```
+
+`NORMAL` results are published so the frontend can confirm camera/inference
+connectivity. `riskLevel`, `behaviorEventId`, and `interventionId` are not part
+of this message yet. Frames and detection results are not written to DB, files,
+snapshots, logs, or Base64. Recoverable frame errors are
 `INVALID_FRAME_META`, `FRAME_BINARY_EXPECTED`,
 `FRAME_BINARY_TIMEOUT`, `ORPHAN_FRAME_BINARY`, `FRAME_TOO_LARGE`,
 `INVALID_JPEG_FRAME`, and `DUPLICATE_FRAME_ID`.
@@ -510,13 +531,16 @@ Latest verified result on 2026-07-02 KST:
 ```text
 Docker Compose verification -> backend/mysql healthy with current working tree
 Docker host port override used for this verification: BACKEND_EXPOSED_PORT=8001, MYSQL_EXPOSED_PORT=3308
+docker compose exec backend alembic current -> 0004_agent_report_tables (head)
+docker compose exec backend alembic heads -> 0004_agent_report_tables (head)
 docker compose exec backend ruff check . -> passed
 docker compose exec backend python -m compileall app -> passed
-docker compose exec backend pytest -ra -> 388 passed, 0 skipped, 1 warning
-4-3B1 targeted Docker pytest -> 129 passed, 0 skipped, 1 warning
+docker compose exec backend pytest -ra -> 395 passed, 0 skipped, 1 warning
+4-3B2 targeted Docker pytest -> 136 passed, 0 skipped, 1 warning
 MySQL-gated tests -> executed inside Docker Compose; no MYSQL_HOST/MYSQL_PASSWORD skip remains
 Live smoke -> health 200 DEGRADED with database UP and vitModel UP, bootstrap 200, Swagger /docs 200, OpenAPI 200
 Live session start smoke -> MOCK mode created ACTIVE session, returned webSocketUrl, ended COMPLETED, and cleaned up profile
+Live WebSocket smoke -> SESSION_READY then DETECTION_UPDATE for FRAME_META+binary with behaviorType NORMAL and confidence 0.99
 OpenAPI live check -> 27 REST method/path contracts present and WebSocket path absent from REST paths
 tzdata/ZoneInfo smoke -> tzdata 2026.2 and ZoneInfo("Asia/Seoul") passed
 OpenAPI Contract Test -> passed
@@ -549,18 +573,18 @@ PowerShell smoke -> health DEGRADED with database UP, vitModel UP, Gemini DOWN, 
 PowerShell smoke -> bootstrap and profiles returned 200
 Live WebSocket smoke -> invalid sessionId returned HTTP 422 INVALID_SESSION_ID JSON denial
 Live WebSocket smoke -> random missing session returned HTTP 404 SESSION_NOT_FOUND JSON denial
-Live WebSocket smoke -> SESSION_READY received, FRAME_META+binary sent, no immediate DETECTION_UPDATE/server message, smoke data cleaned up
+Live WebSocket smoke -> SESSION_READY received, FRAME_META+binary sent, DETECTION_UPDATE received, smoke data cleaned up
 OpenAPI live check -> current 27 REST method/path contracts present
 OpenAPI live check -> /ws/v1/driving-sessions/{sessionId} absent from REST paths
 Swagger /docs -> 200 OK
 Alembic current/head -> 0004_agent_report_tables
 ```
 
-No Alembic revision was created for 4-3B1, and the DB schema did not change.
+No Alembic revision was created for 4-3B2, and the DB schema did not change.
 safetyScore is intentionally nullable until the future risk/safety score policy
 is implemented. The report read APIs aggregate stored data on request. Report
 Export, PDF rendering, file download, email sending, Agent message creation,
-Tool executions, Gemini handling, Demo APIs, real ViT inference, DETECTION_UPDATE,
+Tool executions, Gemini handling, Demo APIs, real ViT inference,
 sliding window/risk/intervention logic, and WebSocket utterance handling remain future work.
 
 ## Stop Containers

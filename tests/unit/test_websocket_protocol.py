@@ -7,6 +7,7 @@ from app.realtime.protocol import (
     InvalidFrameMetaError,
     InvalidLocationUpdateError,
     ProtocolError,
+    make_detection_update_message,
     make_error_message,
     make_ping_message,
     make_session_ready_message,
@@ -66,6 +67,36 @@ def test_error_message_uses_camel_case_payload() -> None:
             "recoverable": False,
         },
     }
+
+
+def test_detection_update_message_uses_implemented_contract() -> None:
+    message = make_detection_update_message(
+        session_id="67371b45-204c-4d87-b8f7-8a334229a41e",
+        frame_id="frame-3024",
+        behavior_type="NORMAL",
+        confidence=0.99,
+        model_version="vit-dms-1.0.0",
+        captured_at=datetime(2026, 6, 28, 3, 10, 10, 200000, tzinfo=UTC),
+        inference_latency_ms=5,
+        occurred_at=datetime(2026, 6, 28, 3, 10, 10, 260000, tzinfo=UTC),
+    )
+
+    assert message == {
+        "type": "DETECTION_UPDATE",
+        "occurredAt": "2026-06-28T03:10:10.260000Z",
+        "payload": {
+            "sessionId": "67371b45-204c-4d87-b8f7-8a334229a41e",
+            "frameId": "frame-3024",
+            "behaviorType": "NORMAL",
+            "confidence": 0.99,
+            "modelVersion": "vit-dms-1.0.0",
+            "capturedAt": "2026-06-28T03:10:10.200000Z",
+            "inferenceLatencyMs": 5,
+        },
+    }
+    assert "riskLevel" not in message["payload"]
+    assert "behaviorEventId" not in message["payload"]
+    assert "interventionId" not in message["payload"]
 
 
 def test_parse_client_pong_message_normalizes_timezone_to_utc() -> None:
