@@ -15,5 +15,7 @@ storage/reports/*
 !storage/reports/.gitkeep
 storage/profile-images/*
 !storage/profile-images/.gitkeep
+!storage/profile-images/default-family/
+!storage/profile-images/default-family/*.svg
 *.pem
 *.key

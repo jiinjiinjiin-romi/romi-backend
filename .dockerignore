@@ -11,9 +11,11 @@ htmlcov/
 .coverage
 tests/**/__pycache__/
 artifacts/
-storage/reports/*
-storage/profile-images/*
 *.pdf
 *.pem
 *.key
-storage/
+storage/*
+!storage/profile-images/
+storage/profile-images/*
+!storage/profile-images/default-family/
+!storage/profile-images/default-family/*.svg

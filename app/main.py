@@ -1,9 +1,11 @@
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.error_handlers import register_error_handlers
 from app.api.navigation_tmap import router as navigation_tmap_router
@@ -20,6 +22,11 @@ logger = logging.getLogger(__name__)
 
 CORS_ALLOWED_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
 CORS_ALLOWED_HEADERS = ["Content-Type", "Authorization", "X-Request-ID"]
+
+
+def get_storage_root(report_storage_path: str) -> Path:
+    report_root = Path(report_storage_path).resolve(strict=False)
+    return report_root.parent if report_root.name == "reports" else report_root
 
 
 @asynccontextmanager
@@ -66,6 +73,11 @@ def create_app() -> FastAPI:
 
     configure_realtime_state(app)
     register_error_handlers(app)
+    app.mount(
+        "/storage",
+        StaticFiles(directory=get_storage_root(settings.report_storage_path), check_dir=False),
+        name="storage",
+    )
     app.include_router(api_v1_router, prefix=settings.api_v1_prefix)
     app.include_router(websocket_router, prefix=settings.ws_v1_prefix)
     app.include_router(navigation_tmap_router)

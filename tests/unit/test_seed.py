@@ -1,8 +1,14 @@
 import pytest
 
 from app.core.config import Settings
-from app.db.seed import SeedError, run_seed, seed_default_admin_account
-from app.models import Account
+from app.db.seed import (
+    DEFAULT_FAMILY_PROFILES,
+    SeedError,
+    run_seed,
+    seed_default_admin_account,
+    seed_default_family_profiles,
+)
+from app.models import Account, DriverProfile
 
 
 class FakeScalarResult:
@@ -16,6 +22,7 @@ class FakeScalarResult:
 class FakeSession:
     def __init__(self) -> None:
         self.accounts: dict[str, Account] = {}
+        self.profiles: list[DriverProfile] = []
         self.conflicting_account: Account | None = None
         self.committed = False
         self.rolled_back = False
@@ -34,8 +41,18 @@ class FakeSession:
         assert statement is not None
         return FakeScalarResult(self.conflicting_account)
 
-    def add(self, account: Account) -> None:
-        self.accounts[account.id] = account
+    async def scalar(self, statement: object) -> int:
+        assert statement is not None
+        return len(self.profiles)
+
+    def add(self, model: Account | DriverProfile) -> None:
+        if isinstance(model, Account):
+            self.accounts[model.id] = model
+            return
+        if isinstance(model, DriverProfile):
+            self.profiles.append(model)
+            return
+        raise AssertionError(f"Unexpected model: {model!r}")
 
     async def commit(self) -> None:
         self.committed = True
@@ -106,12 +123,50 @@ async def test_seed_fails_when_email_belongs_to_another_account() -> None:
     assert "00000000-0000-0000-0000-000000000001" not in session.accounts
 
 
+async def test_seed_creates_default_family_profiles_for_empty_account() -> None:
+    session = FakeSession()
+
+    result = await seed_default_family_profiles(
+        session,
+        "00000000-0000-0000-0000-000000000001",
+    )
+
+    assert result == 3
+    assert [profile.display_name for profile in session.profiles] == ["아빠", "엄마", "지우"]
+    assert [profile.agent_call_name for profile in session.profiles] == ["나비", "나비", "나비"]
+    assert [profile.profile_image_url for profile in session.profiles] == [
+        profile["profile_image_url"] for profile in DEFAULT_FAMILY_PROFILES
+    ]
+    assert {profile.theme for profile in session.profiles} == {"LIGHT"}
+
+
+async def test_seed_skips_default_family_profiles_when_account_already_has_profiles() -> None:
+    session = FakeSession()
+    session.profiles.append(
+        DriverProfile(
+            account_id="00000000-0000-0000-0000-000000000001",
+            display_name="기존 운전자",
+            agent_call_name="나비",
+        )
+    )
+
+    result = await seed_default_family_profiles(
+        session,
+        "00000000-0000-0000-0000-000000000001",
+    )
+
+    assert result == 0
+    assert len(session.profiles) == 1
+    assert session.profiles[0].display_name == "기존 운전자"
+
+
 async def test_run_seed_commits_on_success() -> None:
     session = FakeSession()
 
     result = await run_seed(make_settings(), session_factory=lambda: session)
 
     assert result == "created"
+    assert len(session.profiles) == 3
     assert session.committed is True
     assert session.rolled_back is False
 

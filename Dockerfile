@@ -22,6 +22,7 @@ COPY app ./app
 COPY alembic ./alembic
 COPY alembic.ini ./
 COPY docker-entrypoint.sh ./
+COPY storage/profile-images/default-family ./storage/profile-images/default-family
 
 RUN mkdir -p /app/storage/reports /app/storage/profile-images /app/artifacts \
     && chmod +x /app/docker-entrypoint.sh \
