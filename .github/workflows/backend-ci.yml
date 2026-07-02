@@ -126,8 +126,7 @@ jobs:
         run: docker compose exec -T backend pytest -ra
 
       - name: Compile app
-        run: docker compose exec -T backend python -m compileall app
-
+        run: docker compose exec -T backend python -X pycache_prefix=/tmp/pycache -m compileall app
       - name: Standalone Docker image build
         run: docker build -t driving-agent-backend-ci:${{ github.sha }} -f Dockerfile .
 
