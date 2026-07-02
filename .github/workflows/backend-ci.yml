@@ -120,7 +120,7 @@ jobs:
           docker compose exec -T backend alembic current
 
       - name: Ruff
-        run: docker compose exec -T backend ruff check .
+        run: docker compose exec -T backend ruff check . --no-cache
 
       - name: Pytest
         run: docker compose exec -T backend pytest -ra
