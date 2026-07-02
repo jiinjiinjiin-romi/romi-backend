@@ -1,6 +1,8 @@
-# driving-agent backend
+# JIIN backend
 
-FastAPI backend for the `driving-agent` project.
+FastAPI backend for the JIIN driver-assistance navigation project.
+
+The backend is the primary service for the navigation product. It supports profiles, saved places, search histories, driving sessions, WebSocket driver-monitoring runtime, report reads, and the TMAP proxy APIs used by the `navigation` frontend.
 
 The backend stores data in MySQL 8.4 with InnoDB, `utf8mb4`, and
 `utf8mb4_0900_ai_ci`. Schema changes are managed only through Alembic migrations.
@@ -52,6 +54,13 @@ Do not use `Base.metadata.create_all()` for application schema management.
   - `GET /api/v1/profiles/{profileId}/reports/summary`
   - `GET /api/v1/profiles/{profileId}/reports/behavior-events`
   - `GET /api/v1/profiles/{profileId}/reports/sessions`
+- Navigation TMAP compatibility API for the frontend:
+  - `GET /api/tmap/sdk.js`
+  - `GET /api/tmap/vendor/{asset_path:path}`
+  - `GET /api/tmap/pois`
+  - `POST /api/tmap/routes`
+  - `POST /api/tmap/road-match`
+  - `GET /api/tmap/reverse-geocode`
 - Driving Session WebSocket connection foundation:
   - `WS /ws/v1/driving-sessions/{sessionId}`
   - accept-before validation, SESSION_READY, PING/PONG heartbeat, duplicate replacement
@@ -98,6 +107,16 @@ cp .env.example .env
 
 Do not commit `.env`.
 
+Set `TMAP_APP_KEY` in `.env` before using `/api/tmap/*`. The key stays server-side and is sent to TMAP from the backend.
+
+TMAP proxy settings:
+
+```env
+TMAP_APP_KEY=issued-app-key
+TMAP_REQUEST_TIMEOUT_SECONDS=10
+TMAP_PROXY_CACHE_TTL_MS=30000
+```
+
 ## Docker Compose
 
 Run from the project root, one directory above this backend folder:
@@ -134,7 +153,15 @@ If migration fails, seed and Uvicorn do not run. If seed fails, Uvicorn does not
 - Report Summary API: `http://localhost:8000/api/v1/profiles/{profileId}/reports/summary`
 - Report Behavior API: `http://localhost:8000/api/v1/profiles/{profileId}/reports/behavior-events`
 - Report Sessions API: `http://localhost:8000/api/v1/profiles/{profileId}/reports/sessions`
+- TMAP SDK Proxy: `http://localhost:8000/api/tmap/sdk.js`
+- TMAP Vendor Proxy: `http://localhost:8000/api/tmap/vendor/{asset_path}`
+- TMAP POI Search: `http://localhost:8000/api/tmap/pois?keyword=...`
+- TMAP Route API: `http://localhost:8000/api/tmap/routes`
+- TMAP Road Match API: `http://localhost:8000/api/tmap/road-match`
+- TMAP Reverse Geocode API: `http://localhost:8000/api/tmap/reverse-geocode?lat=...&lng=...`
 - Driving Session WebSocket: `ws://localhost:8000/ws/v1/driving-sessions/{sessionId}`
+
+`/api/tmap/*` endpoints intentionally stay outside `/api/v1` for compatibility with the existing `navigation` frontend. They are excluded from the public OpenAPI contract.
 
 ## Profile API Example
 
