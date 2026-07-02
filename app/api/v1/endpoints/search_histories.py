@@ -6,7 +6,12 @@ from app.api.dependencies import CurrentAccount, DbSession
 from app.api.error_handlers import ErrorResponse
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import AppException
-from app.schemas.search_history import SearchHistoryDeleteResponse, SearchHistoryListResponse
+from app.schemas.search_history import (
+    SearchHistoryCreateRequest,
+    SearchHistoryDeleteResponse,
+    SearchHistoryItemResponse,
+    SearchHistoryListResponse,
+)
 from app.services.search_history_service import (
     DEFAULT_SEARCH_HISTORY_PAGE,
     DEFAULT_SEARCH_HISTORY_SIZE,
@@ -60,6 +65,29 @@ async def list_search_histories(
         parse_profile_id(profile_id),
         page=page,
         size=size,
+    )
+
+
+@router.post(
+    "/profiles/{profileId}/search-histories",
+    response_model=SearchHistoryItemResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        400: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+    },
+)
+async def create_search_history(
+    profile_id: ProfilePath,
+    request: SearchHistoryCreateRequest,
+    current_account: CurrentAccount,
+    service: SearchHistoryServiceDep,
+) -> SearchHistoryItemResponse:
+    return await service.create_search_history(
+        current_account,
+        parse_profile_id(profile_id),
+        request,
     )
 
 

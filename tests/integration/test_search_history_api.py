@@ -146,6 +146,46 @@ async def test_search_history_api_pagination_and_delete(app, client) -> None:
         await dispose_engine()
 
 
+async def test_search_history_api_creates_history_from_selected_place(app, client) -> None:
+    account = await create_test_account("create-search-history")
+    profile = await create_test_profile(account.id)
+    override_current_account(app, account)
+
+    try:
+        create_response = await client.post(
+            f"/api/v1/profiles/{profile.id}/search-histories",
+            json={
+                "query": "서울역",
+                "provider": "TMAP",
+                "providerPlaceId": "poi-1",
+                "placeName": "서울역",
+                "address": "서울 중구 봉래동2가",
+                "latitude": 37.5547,
+                "longitude": 126.9706,
+            },
+        )
+
+        assert create_response.status_code == 201
+        created = create_response.json()
+        assert created["query"] == "서울역"
+        assert created["provider"] == "TMAP"
+        assert created["providerPlaceId"] == "poi-1"
+        assert created["placeName"] == "서울역"
+        assert created["address"] == "서울 중구 봉래동2가"
+        assert created["latitude"] == 37.5547
+        assert created["longitude"] == 126.9706
+        assert created["searchedAt"].endswith("Z")
+
+        list_response = await client.get(f"/api/v1/profiles/{profile.id}/search-histories")
+        assert list_response.status_code == 200
+        assert list_response.json()["total"] == 1
+        assert list_response.json()["items"][0]["query"] == "서울역"
+    finally:
+        app.dependency_overrides.clear()
+        await delete_test_accounts(account.id)
+        await dispose_engine()
+
+
 async def test_search_history_api_blocks_other_account_and_invalid_uuid(app, client) -> None:
     current_account = await create_test_account("current-search")
     other_account = await create_test_account("other-search")

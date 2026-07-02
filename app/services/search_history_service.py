@@ -7,10 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import AppException
 from app.core.time import utc_now_for_api_response
-from app.models import Account
+from app.models import Account, SearchHistory
 from app.repositories.profile_repository import ProfileRepository
 from app.repositories.search_history_repository import SearchHistoryRepository
 from app.schemas.search_history import (
+    SearchHistoryCreateRequest,
     SearchHistoryDeleteResponse,
     SearchHistoryItemResponse,
     SearchHistoryListResponse,
@@ -67,6 +68,43 @@ class SearchHistoryService:
             size=size,
             total=total,
         )
+
+    async def create_search_history(
+        self,
+        account: Account,
+        profile_id: str,
+        request: SearchHistoryCreateRequest,
+    ) -> SearchHistoryItemResponse:
+        try:
+            profile = await self.profile_repository.get_by_account(account.id, profile_id)
+            if profile is None:
+                raise self._profile_not_found()
+
+            history = SearchHistory(
+                profile_id=profile.id,
+                query=request.query,
+                provider=request.provider,
+                provider_place_id=request.provider_place_id,
+                place_name=request.place_name,
+                address=request.address,
+                latitude=request.latitude,
+                longitude=request.longitude,
+            )
+            self.search_history_repository.add(history)
+            await self.session.commit()
+            await self.session.refresh(history)
+            return SearchHistoryItemResponse.model_validate(history)
+        except AppException:
+            await self.session.rollback()
+            raise
+        except SQLAlchemyError as exc:
+            await self.session.rollback()
+            logger.exception("Search history create database error profile_id=%s", profile_id)
+            raise AppException(
+                "검색 기록을 저장하지 못했습니다.",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                error_code=ErrorCode.INTERNAL_SERVER_ERROR,
+            ) from exc
 
     async def delete_search_histories(
         self,

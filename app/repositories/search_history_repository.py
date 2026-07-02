@@ -38,3 +38,6 @@ class SearchHistoryRepository:
             delete(SearchHistory).where(SearchHistory.profile_id == profile_id)
         )
         return int(result.rowcount or 0)
+
+    def add(self, history: SearchHistory) -> None:
+        self.session.add(history)

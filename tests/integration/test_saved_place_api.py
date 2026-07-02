@@ -255,6 +255,45 @@ async def test_saved_place_api_validation_and_other_account_access(app, client) 
         await dispose_engine()
 
 
+async def test_saved_place_api_separates_places_by_profile_within_same_account(app, client) -> None:
+    account = await create_test_account("profile-scoped-place")
+    first_profile = await create_test_profile(account.id, "First")
+    second_profile = await create_test_profile(account.id, "Second")
+    override_current_account(app, account)
+
+    try:
+        first_favorite_response = await client.post(
+            f"/api/v1/profiles/{first_profile.id}/favorites",
+            json=place_payload("First Favorite", "first-favorite", 37.1, 127.1),
+        )
+        second_favorite_response = await client.post(
+            f"/api/v1/profiles/{second_profile.id}/favorites",
+            json=place_payload("Second Favorite", "second-favorite", 37.2, 127.2),
+        )
+        assert first_favorite_response.status_code == 201
+        assert second_favorite_response.status_code == 201
+
+        first_list_response = await client.get(
+            f"/api/v1/profiles/{first_profile.id}/saved-places"
+        )
+        second_list_response = await client.get(
+            f"/api/v1/profiles/{second_profile.id}/saved-places"
+        )
+
+        assert first_list_response.status_code == 200
+        assert second_list_response.status_code == 200
+        assert [place["label"] for place in first_list_response.json()["favorites"]] == [
+            "First Favorite"
+        ]
+        assert [place["label"] for place in second_list_response.json()["favorites"]] == [
+            "Second Favorite"
+        ]
+    finally:
+        app.dependency_overrides.clear()
+        await delete_test_accounts(account.id)
+        await dispose_engine()
+
+
 async def test_fixed_place_upsert_is_protected_by_profile_row_lock() -> None:
     account = await create_test_account("fixed-concurrent")
     profile = await create_test_profile(account.id, "Fixed Concurrent")

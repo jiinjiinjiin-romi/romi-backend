@@ -20,6 +20,7 @@ EXPECTED_REST_OPERATIONS = {
     ("PATCH", "/api/v1/saved-places/{placeId}"),
     ("DELETE", "/api/v1/saved-places/{placeId}"),
     ("GET", "/api/v1/profiles/{profileId}/search-histories"),
+    ("POST", "/api/v1/profiles/{profileId}/search-histories"),
     ("DELETE", "/api/v1/profiles/{profileId}/search-histories"),
     ("POST", "/api/v1/driving-sessions"),
     ("GET", "/api/v1/driving-sessions/active"),
@@ -55,6 +56,7 @@ EXPECTED_SUCCESS_RESPONSES = {
     ("DELETE", "/api/v1/profiles/{profileId}"): {"204"},
     ("PUT", "/api/v1/profiles/{profileId}/saved-places/{placeType}"): {"200"},
     ("POST", "/api/v1/profiles/{profileId}/favorites"): {"201"},
+    ("POST", "/api/v1/profiles/{profileId}/search-histories"): {"201"},
     ("DELETE", "/api/v1/saved-places/{placeId}"): {"204"},
     ("POST", "/api/v1/driving-sessions"): {"201"},
     ("GET", "/api/v1/driving-sessions/active"): {"200", "204"},
@@ -78,7 +80,7 @@ def test_openapi_exposes_only_current_rest_operation_matrix() -> None:
     }
 
     assert actual_operations == EXPECTED_REST_OPERATIONS
-    assert len(actual_operations) == 27
+    assert len(actual_operations) == 28
     assert not (actual_operations & FORBIDDEN_REST_OPERATIONS)
     assert all(path.startswith("/api/v1/") for _, path in actual_operations)
     assert all(not path.startswith("/api/v1/api/v1/") for _, path in actual_operations)

@@ -8,10 +8,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
-from app.core.enums import AgentPersonality, Theme, WarningSensitivity
+from app.core.enums import AgentPersonality, PlaceType, Theme, WarningSensitivity
 from app.core.logging import configure_logging
 from app.db.session import AsyncSessionLocal, dispose_engine
-from app.models import Account, DriverProfile
+from app.models import Account, DriverProfile, SavedPlace
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,26 @@ DEFAULT_FAMILY_PROFILES = (
         "display_name": "지우",
         "agent_call_name": "나비",
         "profile_image_url": f"{DEFAULT_FAMILY_PROFILE_IMAGE_BASE_URL}/child.svg",
+    },
+)
+DEFAULT_NAVIGATION_LABELS = (
+    {
+        "place_type": PlaceType.FAVORITE.value,
+        "label": "집",
+        "provider": "TMAP",
+        "provider_place_id": "origin:default-home",
+        "address": "서울 중구 세종대로 110",
+        "latitude": 37.5547,
+        "longitude": 126.9706,
+    },
+    {
+        "place_type": PlaceType.FAVORITE.value,
+        "label": "회사",
+        "provider": "TMAP",
+        "provider_place_id": "destination:default-work",
+        "address": "서울 강남구 테헤란로 152",
+        "latitude": 37.4979,
+        "longitude": 127.0276,
     },
 )
 
@@ -98,6 +118,50 @@ async def seed_default_family_profiles(session: AsyncSession, account_id: str) -
     return len(DEFAULT_FAMILY_PROFILES)
 
 
+async def seed_default_navigation_labels(
+    session: AsyncSession,
+    profiles: list[DriverProfile],
+) -> int:
+    seeded_count = 0
+
+    for profile in profiles:
+        saved_places = getattr(session, "saved_places", None)
+        if saved_places is None:
+            place_count = await session.scalar(
+                select(func.count())
+                .select_from(SavedPlace)
+                .where(SavedPlace.profile_id == profile.id)
+            )
+        else:
+            place_count = sum(
+                1 for saved_place in saved_places if saved_place.profile_id == profile.id
+            )
+
+        if int(place_count or 0) > 0:
+            continue
+
+        for label_data in DEFAULT_NAVIGATION_LABELS:
+            session.add(
+                SavedPlace(
+                    profile_id=profile.id,
+                    **label_data,
+                )
+            )
+            seeded_count += 1
+
+    return seeded_count
+
+
+async def list_account_profiles(session: AsyncSession, account_id: str) -> list[DriverProfile]:
+    if hasattr(session, "profiles"):
+        return list(getattr(session, "profiles"))
+
+    result = await session.execute(
+        select(DriverProfile).where(DriverProfile.account_id == account_id)
+    )
+    return list(result.scalars().all())
+
+
 async def run_seed(
     settings: Settings | None = None,
     session_factory: Callable[[], AsyncSession] = AsyncSessionLocal,
@@ -111,11 +175,18 @@ async def run_seed(
                 session,
                 active_settings.default_admin_account_id,
             )
+            await session.flush()
+            account_profiles = await list_account_profiles(
+                session,
+                active_settings.default_admin_account_id,
+            )
+            seeded_labels = await seed_default_navigation_labels(session, account_profiles)
             await session.commit()
             logger.info(
-                "Default seed completed: account=%s family_profiles=%s",
+                "Default seed completed: account=%s family_profiles=%s navigation_labels=%s",
                 result,
                 seeded_profiles,
+                seeded_labels,
             )
             return result
         except Exception:
