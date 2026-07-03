@@ -1,5 +1,5 @@
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -99,7 +99,7 @@ def override_dependencies(app, account: Account, *, model_available: bool = True
     app.state.driver_monitoring_adapter = FakeDriverMonitoringAdapter(model_available)
 
 
-async def seed_session_activity(session_id: str) -> None:
+async def seed_session_activity(session_id: str) -> datetime:
     started_at = utc_now_for_mysql_datetime() - timedelta(minutes=10)
     async with AsyncSessionLocal() as session:
         driving_session = await session.get(DrivingSession, session_id)
@@ -181,6 +181,7 @@ async def seed_session_activity(session_id: str) -> None:
             ]
         )
         await session.commit()
+    return started_at
 
 
 async def test_driving_session_api_full_lifecycle_summary_and_history(app, client) -> None:
@@ -209,7 +210,7 @@ async def test_driving_session_api_full_lifecycle_summary_and_history(app, clien
         assert duplicate_response.status_code == 409
         assert duplicate_response.json()["error"] == "ACTIVE_SESSION_EXISTS"
 
-        await seed_session_activity(session_id)
+        started_at = await seed_session_activity(session_id)
 
         active_response = await client.get(
             f"/api/v1/driving-sessions/active?profileId={profile.id}"
@@ -255,10 +256,11 @@ async def test_driving_session_api_full_lifecycle_summary_and_history(app, clien
         assert repeated_end_response.status_code == 409
         assert repeated_end_response.json()["error"] == "SESSION_NOT_ACTIVE"
 
-        today = utc_now_for_mysql_datetime().date().isoformat()
+        history_date = started_at.date().isoformat()
         history_response = await client.get(
             f"/api/v1/profiles/{profile.id}/driving-sessions"
-            f"?page=1&size=20&status=COMPLETED&startedFrom={today}&startedTo={today}"
+            f"?page=1&size=20&status=COMPLETED&startedFrom={history_date}"
+            f"&startedTo={history_date}"
         )
         assert history_response.status_code == 200
         history = history_response.json()
