@@ -60,6 +60,7 @@ Do not use `Base.metadata.create_all()` for application schema management.
   - app-scoped DriverMonitoringAdapter created during FastAPI lifespan startup and shared by health, bootstrap, session start, WebSocket handshake, and inference workers
   - connection-scoped inference worker consuming the latest-frame queue through the app-scoped deterministic Mock ViT adapter
   - internal `DetectionResult` state with 3MDAD raw model action fields, inference latency, processed-frame count, and failure count
+  - internal `DetectionPipeline` connecting successful detection results to runtime Sliding Window behavior state
   - `DETECTION_UPDATE` publishing with `behaviorType`, `modelActionType`, `modelClassCode`, and `modelClassLabel` for successful inference results on the current WebSocket connection
 - REST 3-6 integration, regression, and OpenAPI contract verification
 - Docker Compose stack for backend and MySQL
@@ -72,7 +73,7 @@ Do not use `Base.metadata.create_all()` for application schema management.
 - Search History creation REST API
 - Agent messages, Gemini handling, ToolExecution handling, and Report Export APIs
 - Real ViT inference and Agent utterance handling
-- JPEG decode/preprocessing, sliding window, behavior event writer/runtime state, risk policy, and interventions
+- JPEG decode/preprocessing, behavior event writer, risk policy, and interventions
 - Gemini calls, email delivery, and report file generation
 
 The default admin account is only seed data for early development. It is not a
@@ -434,6 +435,13 @@ stored in `behavior_events`. Raw `ModelActionType` values such as
 not added because Sliding Window and BehaviorEvent writer aggregation semantics
 are not defined yet.
 
+4-5B connects the internal Sliding Window policy to realtime inference through
+`DetectionPipeline` and stores behavior transition state only in
+`SessionRuntime`. This does not change the `DETECTION_UPDATE` payload and does
+not insert `behavior_events` rows. BehaviorEvent writer, risk policy,
+interventions, Gemini, AgentMessage, ToolExecution, and client-facing behavior
+transition messages remain future work.
+
 Local development defaults to MOCK mode, so ViT readiness is UP even when
 `/app/artifacts/models/best_vit.pth` is absent. REAL mode intentionally reports
 ViT DOWN until the real adapter is implemented.
@@ -558,12 +566,12 @@ Latest verified result on 2026-07-03 KST:
 ```text
 Docker Compose verification -> backend/mysql healthy with current working tree
 Docker host port override used for this verification: BACKEND_EXPOSED_PORT=8001, MYSQL_EXPOSED_PORT=3308
-docker compose exec backend alembic current -> 0004_agent_report_tables (head)
-docker compose exec backend alembic heads -> 0004_agent_report_tables (head)
+docker compose exec backend alembic current -> 0005_behavior_event_taxonomy (head)
+docker compose exec backend alembic heads -> 0005_behavior_event_taxonomy (head)
 docker compose exec backend ruff check . -> passed
 docker compose exec backend python -m compileall app -> passed
-docker compose exec backend pytest -ra -> 441 passed, 0 skipped, 1 warning
-4-5-0A targeted Docker pytest -> 182 passed, 0 skipped, 1 warning
+docker compose exec backend pytest -ra -> 473 passed, 1 warning
+4-5B targeted Docker pytest -> 49 passed
 MySQL-gated tests -> executed inside Docker Compose; no MYSQL_HOST/MYSQL_PASSWORD skip remains
 Live smoke -> health 200 DEGRADED with database UP and vitModel UP, bootstrap 200, Swagger /docs 200, OpenAPI 200
 Live session start smoke -> MOCK mode created ACTIVE session, returned webSocketUrl, ended COMPLETED, and cleaned up profile
@@ -603,18 +611,19 @@ PowerShell smoke -> bootstrap and profiles returned 200
 Live WebSocket smoke -> invalid sessionId returned HTTP 422 INVALID_SESSION_ID JSON denial
 Live WebSocket smoke -> random missing session returned HTTP 404 SESSION_NOT_FOUND JSON denial
 Live WebSocket smoke -> SESSION_READY received, FRAME_META+binary sent, DETECTION_UPDATE with model action fields received, smoke data cleaned up
+OpenAPI contract test -> passed
 OpenAPI live check -> current 27 REST method/path contracts present
 OpenAPI live check -> /ws/v1/driving-sessions/{sessionId} absent from REST paths
 Swagger /docs -> 200 OK
-Alembic current/head -> 0004_agent_report_tables
+Alembic current/head -> 0005_behavior_event_taxonomy
 ```
 
-No Alembic revision was created for 4-5-0A, and the DB schema did not change.
+No Alembic revision was created for 4-5B, and the DB schema did not change.
 safetyScore is intentionally nullable until the future risk/safety score policy
 is implemented. The report read APIs aggregate stored data on request. Report
 Export, PDF rendering, file download, email sending, Agent message creation,
 Tool executions, Gemini handling, Demo APIs, real ViT inference,
-sliding window/risk/intervention logic, and WebSocket utterance handling remain future work.
+BehaviorEvent writing, risk/intervention logic, and WebSocket utterance handling remain future work.
 
 ## Stop Containers
 

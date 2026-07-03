@@ -3,13 +3,18 @@ from __future__ import annotations
 import asyncio
 from collections import OrderedDict, deque
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 
-from app.ai.driver_monitoring import DetectionResult
-from app.core.enums import DrivingState, LocationSource
+from app.ai.driver_monitoring import DetectionBehaviorType, DetectionResult, ModelActionType
+from app.core.enums import BehaviorType, DrivingState, LocationSource
 from app.core.time import utc_now_for_api_response
+from app.policies.sliding_window_behavior_policy import (
+    BehaviorTransition,
+    BehaviorTransitionType,
+    SlidingWindowBehaviorPolicy,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,6 +115,16 @@ class SessionRuntime:
     last_inference_latency_ms: int | None = None
     processed_frame_count: int = 0
     inference_failure_count: int = 0
+    behavior_policy: SlidingWindowBehaviorPolicy = field(
+        default_factory=SlidingWindowBehaviorPolicy
+    )
+    last_behavior_transition: BehaviorTransition | None = None
+    active_detection_behavior_type: DetectionBehaviorType | None = None
+    active_event_behavior_type: BehaviorType | None = None
+    dominant_model_action_type: ModelActionType | None = None
+    active_behavior_started_at: datetime | None = None
+    last_behavior_seen_at: datetime | None = None
+    last_behavior_transition_at: datetime | None = None
     active_behavior_event_id: str | None = None
     current_intervention_id: str | None = None
     active_conversation_id: str | None = None
@@ -163,6 +178,33 @@ class InferenceRuntimeSnapshot:
     last_inference_latency_ms: int | None
     processed_frame_count: int
     inference_failure_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class BehaviorRuntimeSnapshot:
+    session_id: str
+    connection_generation: int
+    last_behavior_transition: BehaviorTransition | None
+    active_detection_behavior_type: DetectionBehaviorType | None
+    active_event_behavior_type: BehaviorType | None
+    dominant_model_action_type: ModelActionType | None
+    active_behavior_started_at: datetime | None
+    last_behavior_seen_at: datetime | None
+    last_behavior_transition_at: datetime | None
+    policy_sample_count: int
+
+
+class BehaviorRuntimeObserveStatus(StrEnum):
+    TRANSITION_RECORDED = "TRANSITION_RECORDED"
+    NO_TRANSITION = "NO_TRANSITION"
+    STALE_GENERATION = "STALE_GENERATION"
+    NOT_FOUND = "NOT_FOUND"
+
+
+@dataclass(frozen=True, slots=True)
+class BehaviorRuntimeObserveResult:
+    status: BehaviorRuntimeObserveStatus
+    transition: BehaviorTransition | None
 
 
 class SessionRuntimeRegistry:
@@ -221,6 +263,7 @@ class SessionRuntimeRegistry:
                 frame_recent_id_cache_size=frame_recent_id_cache_size,
             )
             self._reset_inference_state_locked(runtime)
+            self._reset_behavior_state_locked(runtime)
             return runtime.connection_generation
 
     async def get(self, session_id: str) -> SessionRuntime | None:
@@ -326,6 +369,7 @@ class SessionRuntimeRegistry:
                 frame_recent_id_cache_size=frame_recent_id_cache_size,
             )
             self._reset_inference_state_locked(runtime)
+            self._reset_behavior_state_locked(runtime)
             return True
 
     async def accept_frame(self, session_id: str, frame: AcceptedFrame) -> FrameAcceptResult:
@@ -443,6 +487,46 @@ class SessionRuntimeRegistry:
                 return None
             return self._inference_snapshot(runtime)
 
+    async def observe_behavior_result(
+        self,
+        session_id: str,
+        *,
+        connection_generation: int,
+        result: DetectionResult,
+    ) -> BehaviorRuntimeObserveResult:
+        async with self._lock:
+            runtime = self._runtimes.get(session_id)
+            if runtime is None:
+                return BehaviorRuntimeObserveResult(
+                    status=BehaviorRuntimeObserveStatus.NOT_FOUND,
+                    transition=None,
+                )
+            if runtime.connection_generation != connection_generation:
+                return BehaviorRuntimeObserveResult(
+                    status=BehaviorRuntimeObserveStatus.STALE_GENERATION,
+                    transition=None,
+                )
+
+            transition = runtime.behavior_policy.observe(result)
+            if transition.transition_type == BehaviorTransitionType.NONE:
+                return BehaviorRuntimeObserveResult(
+                    status=BehaviorRuntimeObserveStatus.NO_TRANSITION,
+                    transition=transition,
+                )
+
+            self._record_behavior_transition_locked(runtime, transition)
+            return BehaviorRuntimeObserveResult(
+                status=BehaviorRuntimeObserveStatus.TRANSITION_RECORDED,
+                transition=transition,
+            )
+
+    async def get_behavior_snapshot(self, session_id: str) -> BehaviorRuntimeSnapshot | None:
+        async with self._lock:
+            runtime = self._runtimes.get(session_id)
+            if runtime is None:
+                return None
+            return self._behavior_snapshot(runtime)
+
     async def remove(self, session_id: str) -> bool:
         async with self._lock:
             runtime = self._runtimes.pop(session_id, None)
@@ -487,6 +571,45 @@ class SessionRuntimeRegistry:
         )
 
     @staticmethod
+    def _behavior_snapshot(runtime: SessionRuntime) -> BehaviorRuntimeSnapshot:
+        return BehaviorRuntimeSnapshot(
+            session_id=runtime.session_id,
+            connection_generation=runtime.connection_generation,
+            last_behavior_transition=runtime.last_behavior_transition,
+            active_detection_behavior_type=runtime.active_detection_behavior_type,
+            active_event_behavior_type=runtime.active_event_behavior_type,
+            dominant_model_action_type=runtime.dominant_model_action_type,
+            active_behavior_started_at=runtime.active_behavior_started_at,
+            last_behavior_seen_at=runtime.last_behavior_seen_at,
+            last_behavior_transition_at=runtime.last_behavior_transition_at,
+            policy_sample_count=runtime.behavior_policy.sample_count,
+        )
+
+    @staticmethod
+    def _record_behavior_transition_locked(
+        runtime: SessionRuntime,
+        transition: BehaviorTransition,
+    ) -> None:
+        runtime.last_behavior_transition = transition
+        runtime.last_behavior_seen_at = transition.last_seen_at
+        runtime.last_behavior_transition_at = transition.captured_at
+
+        if transition.transition_type == BehaviorTransitionType.CLEARED:
+            runtime.active_detection_behavior_type = None
+            runtime.active_event_behavior_type = None
+            runtime.dominant_model_action_type = None
+            runtime.active_behavior_started_at = None
+            runtime.active_behavior_event_id = None
+            runtime.current_intervention_id = None
+            runtime.active_conversation_id = None
+            return
+
+        runtime.active_detection_behavior_type = transition.detection_behavior_type
+        runtime.active_event_behavior_type = transition.event_behavior_type
+        runtime.dominant_model_action_type = transition.dominant_model_action_type
+        runtime.active_behavior_started_at = transition.started_at
+
+    @staticmethod
     def _reset_frame_state_locked(
         runtime: SessionRuntime,
         *,
@@ -512,3 +635,17 @@ class SessionRuntimeRegistry:
         runtime.last_inference_latency_ms = None
         runtime.processed_frame_count = 0
         runtime.inference_failure_count = 0
+
+    @staticmethod
+    def _reset_behavior_state_locked(runtime: SessionRuntime) -> None:
+        runtime.behavior_policy.reset()
+        runtime.last_behavior_transition = None
+        runtime.active_detection_behavior_type = None
+        runtime.active_event_behavior_type = None
+        runtime.dominant_model_action_type = None
+        runtime.active_behavior_started_at = None
+        runtime.last_behavior_seen_at = None
+        runtime.last_behavior_transition_at = None
+        runtime.active_behavior_event_id = None
+        runtime.current_intervention_id = None
+        runtime.active_conversation_id = None

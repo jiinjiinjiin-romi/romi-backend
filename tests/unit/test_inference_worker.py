@@ -82,6 +82,14 @@ class RecordingPublisher:
         self.calls.append((session_id, websocket, result))
 
 
+class RecordingPipeline:
+    def __init__(self) -> None:
+        self.calls: list[DetectionResult] = []
+
+    async def handle_detection_result(self, result: DetectionResult) -> None:
+        self.calls.append(result)
+
+
 def accepted_frame(frame_id: str = "frame-1") -> AcceptedFrame:
     timestamp = datetime(2026, 6, 28, 3, 10, tzinfo=UTC)
     return AcceptedFrame(
@@ -137,6 +145,7 @@ def make_worker(
     adapter: Any,
     manager: FakeConnectionManager | None = None,
     publisher: RecordingPublisher | None = None,
+    pipeline: RecordingPipeline | None = None,
 ) -> InferenceWorker:
     return InferenceWorker(
         session_id="session-1",
@@ -145,6 +154,7 @@ def make_worker(
         connection_manager=manager or FakeConnectionManager(),
         runtime_registry=registry,
         adapter=adapter,
+        detection_pipeline=pipeline,
         detection_publisher=publisher,
     )
 
@@ -199,6 +209,32 @@ async def test_worker_consumes_frame_and_records_detection_result() -> None:
     assert [(session_id, result.frame_id) for session_id, _, result in publisher.calls] == [
         ("session-1", "frame-1")
     ]
+
+
+@pytest.mark.asyncio
+async def test_worker_passes_adapter_result_to_detection_pipeline() -> None:
+    registry, generation = await prepare_registry()
+    adapter = RecordingAdapter()
+    pipeline = RecordingPipeline()
+    worker = make_worker(
+        registry=registry,
+        generation=generation,
+        adapter=adapter,
+        pipeline=pipeline,
+    )
+    worker.start()
+
+    await registry.accept_frame("session-1", accepted_frame("frame-1"))
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 1
+    while not pipeline.calls:
+        if loop.time() >= deadline:
+            raise AssertionError("Detection pipeline was not called.")
+        await asyncio.sleep(0)
+    await worker.stop()
+
+    assert [frame.frame_id for frame in adapter.frames] == ["frame-1"]
+    assert [result.frame_id for result in pipeline.calls] == ["frame-1"]
 
 
 @pytest.mark.asyncio

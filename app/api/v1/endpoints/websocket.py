@@ -24,6 +24,7 @@ from app.integrations.driver_monitoring import HealthDriverMonitoringReadiness
 from app.models import Account
 from app.policies.driving_context_policy import DrivingContextPolicy
 from app.realtime.connection_manager import ConnectionManager, ManagedConnection
+from app.realtime.detection_pipeline import DetectionPipeline
 from app.realtime.detection_publisher import DetectionUpdatePublisher
 from app.realtime.frame_handler import FrameIngressService, FrameIngressStatus
 from app.realtime.frame_pairing import FramePairingController
@@ -133,6 +134,14 @@ async def connect_driving_session_websocket(
         max_frame_bytes=settings.ws_max_frame_bytes,
     )
     detection_publisher = DetectionUpdatePublisher(connection_manager=connection_manager)
+    detection_pipeline = DetectionPipeline(
+        session_id=parsed_session_id,
+        websocket=websocket,
+        connection_generation=connection_generation,
+        connection_manager=connection_manager,
+        runtime_registry=runtime_registry,
+        detection_publisher=detection_publisher,
+    )
 
     async def send_frame_timeout_error(_: FrameMetaMessage) -> None:
         await _send_frame_error(
@@ -156,7 +165,7 @@ async def connect_driving_session_websocket(
             connection_manager=connection_manager,
             runtime_registry=runtime_registry,
             adapter=adapter,
-            detection_publisher=detection_publisher,
+            detection_pipeline=detection_pipeline,
         )
         inference_worker.start()
 
