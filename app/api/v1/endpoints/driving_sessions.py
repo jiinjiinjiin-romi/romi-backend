@@ -2,7 +2,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path, Query, Response, status
 
-from app.api.dependencies import AppSettings, CurrentAccount, DbSession
+from app.api.dependencies import (
+    AppSettings,
+    CurrentAccount,
+    DbSession,
+    DriverMonitoringAdapterDep,
+)
 from app.api.error_handlers import ErrorResponse
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import AppException
@@ -38,8 +43,10 @@ SessionPath = Annotated[str, Path(alias="sessionId")]
 ProfileQuery = Annotated[str, Query(alias="profileId")]
 
 
-def get_driver_monitoring_readiness(settings: AppSettings) -> DriverMonitoringReadiness:
-    return HealthDriverMonitoringReadiness(settings)
+def get_driver_monitoring_readiness(
+    driver_monitoring_adapter: DriverMonitoringAdapterDep,
+) -> DriverMonitoringReadiness:
+    return HealthDriverMonitoringReadiness(driver_monitoring_adapter)
 
 
 DriverMonitoringReadinessDep = Annotated[

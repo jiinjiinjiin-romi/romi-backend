@@ -1,3 +1,4 @@
+import pytest
 from sqlalchemy import (
     CHAR,
     Boolean,
@@ -11,6 +12,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects import mysql
 
+from app.ai.driver_monitoring import DetectionBehaviorType, ModelActionType
 from app.core.enums import (
     BehaviorEventSource,
     BehaviorEventStatus,
@@ -41,6 +43,15 @@ def constraint_names(model: type) -> set[str]:
         for constraint in model.__table__.constraints
         if isinstance(constraint, CheckConstraint)
     }
+
+
+def check_constraint_sql(model: type, name: str) -> str:
+    constraint = next(
+        constraint
+        for constraint in model.__table__.constraints
+        if isinstance(constraint, CheckConstraint) and constraint.name == name
+    )
+    return str(constraint.sqltext)
 
 
 def unique_constraint_names(model: type) -> set[str]:
@@ -218,6 +229,24 @@ def test_behavior_event_model_schema_constraints_and_relationship() -> None:
         "idx_behavior_events_type_time",
         "idx_behavior_events_status",
     } <= index_names(BehaviorEvent)
+    behavior_type_check = check_constraint_sql(
+        BehaviorEvent,
+        "ck_behavior_events_behavior_type",
+    )
+    assert all(
+        behavior_type in behavior_type_check
+        for behavior_type in {
+            "DROWSINESS",
+            "PHONE_USE",
+            "FOOD_OR_DRINK",
+            "GAZE_AWAY",
+            "SECONDARY_TASK",
+            "REACHING_BEHIND",
+            "SMOKING",
+        }
+    )
+    assert "NORMAL" not in behavior_type_check
+    assert "SAFE_DRIVING" not in behavior_type_check
     fk = next(iter(table.c.session_id.foreign_keys))
     assert fk.target_fullname == "driving_sessions.id"
     assert fk.ondelete == "CASCADE"
@@ -307,8 +336,16 @@ def test_driving_and_safety_enum_values() -> None:
         "PHONE_USE",
         "FOOD_OR_DRINK",
         "GAZE_AWAY",
+        "SECONDARY_TASK",
+        "REACHING_BEHIND",
+        "SMOKING",
     }
     assert "NORMAL" not in {item.value for item in BehaviorType}
+    with pytest.raises(ValueError):
+        BehaviorType("NORMAL")
+    assert DetectionBehaviorType.NORMAL.value == "NORMAL"
+    with pytest.raises(ValueError):
+        BehaviorType(ModelActionType.SAFE_DRIVING.value)
     assert {item.value for item in BehaviorResolutionReason} == {
         "BEHAVIOR_CORRECTED",
         "SESSION_ENDED",

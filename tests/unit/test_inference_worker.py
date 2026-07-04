@@ -4,7 +4,8 @@ from typing import Any
 
 import pytest
 
-from app.ai.driver_monitoring import DetectionBehaviorType, DetectionResult, InferenceFrame
+from app.ai.driver_monitoring import DetectionResult, InferenceFrame
+from app.ai.prediction_mapper import metadata_from_class_index
 from app.realtime.inference_worker import InferenceWorker
 from app.realtime.session_runtime import (
     AcceptedFrame,
@@ -67,6 +68,28 @@ class BlockingAdapter(RecordingAdapter):
         return detection_result(frame)
 
 
+class RecordingPublisher:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, object, DetectionResult]] = []
+
+    async def publish(
+        self,
+        *,
+        session_id: str,
+        websocket: object,
+        result: DetectionResult,
+    ) -> None:
+        self.calls.append((session_id, websocket, result))
+
+
+class RecordingPipeline:
+    def __init__(self) -> None:
+        self.calls: list[DetectionResult] = []
+
+    async def handle_detection_result(self, result: DetectionResult) -> None:
+        self.calls.append(result)
+
+
 def accepted_frame(frame_id: str = "frame-1") -> AcceptedFrame:
     timestamp = datetime(2026, 6, 28, 3, 10, tzinfo=UTC)
     return AcceptedFrame(
@@ -86,10 +109,14 @@ def accepted_frame(frame_id: str = "frame-1") -> AcceptedFrame:
 
 def detection_result(frame: InferenceFrame) -> DetectionResult:
     timestamp = datetime(2026, 6, 28, 3, 10, tzinfo=UTC)
+    metadata = metadata_from_class_index(0)
     return DetectionResult(
         session_id=frame.session_id,
         frame_id=frame.frame_id,
-        behavior_type=DetectionBehaviorType.NORMAL,
+        model_action_type=metadata.action_type,
+        model_class_code=metadata.class_code,
+        model_class_label=metadata.class_label,
+        behavior_type=metadata.detection_behavior_type,
         confidence=0.99,
         model_version="vit-test",
         captured_at=frame.captured_at,
@@ -117,6 +144,8 @@ def make_worker(
     generation: int,
     adapter: Any,
     manager: FakeConnectionManager | None = None,
+    publisher: RecordingPublisher | None = None,
+    pipeline: RecordingPipeline | None = None,
 ) -> InferenceWorker:
     return InferenceWorker(
         session_id="session-1",
@@ -125,6 +154,8 @@ def make_worker(
         connection_manager=manager or FakeConnectionManager(),
         runtime_registry=registry,
         adapter=adapter,
+        detection_pipeline=pipeline,
+        detection_publisher=publisher,
     )
 
 
@@ -144,11 +175,26 @@ async def wait_for_snapshot(
         await asyncio.sleep(0)
 
 
+async def wait_until_worker_stops(worker: InferenceWorker) -> None:
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 1
+    while worker.is_running:
+        if loop.time() >= deadline:
+            raise AssertionError("Inference worker did not stop.")
+        await asyncio.sleep(0)
+
+
 @pytest.mark.asyncio
 async def test_worker_consumes_frame_and_records_detection_result() -> None:
     registry, generation = await prepare_registry()
     adapter = RecordingAdapter()
-    worker = make_worker(registry=registry, generation=generation, adapter=adapter)
+    publisher = RecordingPublisher()
+    worker = make_worker(
+        registry=registry,
+        generation=generation,
+        adapter=adapter,
+        publisher=publisher,
+    )
     worker.start()
 
     await registry.accept_frame("session-1", accepted_frame("frame-1"))
@@ -160,13 +206,48 @@ async def test_worker_consumes_frame_and_records_detection_result() -> None:
     assert snapshot.last_detection_result.frame_id == "frame-1"
     assert snapshot.last_inference_latency_ms == 7
     assert snapshot.inference_failure_count == 0
+    assert [(session_id, result.frame_id) for session_id, _, result in publisher.calls] == [
+        ("session-1", "frame-1")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_worker_passes_adapter_result_to_detection_pipeline() -> None:
+    registry, generation = await prepare_registry()
+    adapter = RecordingAdapter()
+    pipeline = RecordingPipeline()
+    worker = make_worker(
+        registry=registry,
+        generation=generation,
+        adapter=adapter,
+        pipeline=pipeline,
+    )
+    worker.start()
+
+    await registry.accept_frame("session-1", accepted_frame("frame-1"))
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 1
+    while not pipeline.calls:
+        if loop.time() >= deadline:
+            raise AssertionError("Detection pipeline was not called.")
+        await asyncio.sleep(0)
+    await worker.stop()
+
+    assert [frame.frame_id for frame in adapter.frames] == ["frame-1"]
+    assert [result.frame_id for result in pipeline.calls] == ["frame-1"]
 
 
 @pytest.mark.asyncio
 async def test_worker_records_failure_and_continues_to_next_frame() -> None:
     registry, generation = await prepare_registry()
     adapter = FailingThenSuccessAdapter()
-    worker = make_worker(registry=registry, generation=generation, adapter=adapter)
+    publisher = RecordingPublisher()
+    worker = make_worker(
+        registry=registry,
+        generation=generation,
+        adapter=adapter,
+        publisher=publisher,
+    )
     worker.start()
 
     await registry.accept_frame("session-1", accepted_frame("frame-1"))
@@ -179,6 +260,9 @@ async def test_worker_records_failure_and_continues_to_next_frame() -> None:
     assert snapshot.inference_failure_count == 1
     assert snapshot.last_detection_result is not None
     assert snapshot.last_detection_result.frame_id == "frame-2"
+    assert [(session_id, result.frame_id) for session_id, _, result in publisher.calls] == [
+        ("session-1", "frame-2")
+    ]
 
 
 @pytest.mark.asyncio
@@ -200,7 +284,13 @@ async def test_worker_stop_is_idempotent_while_waiting_for_frame() -> None:
 async def test_worker_cancellation_during_inference_does_not_record_failure() -> None:
     registry, generation = await prepare_registry()
     adapter = BlockingAdapter()
-    worker = make_worker(registry=registry, generation=generation, adapter=adapter)
+    publisher = RecordingPublisher()
+    worker = make_worker(
+        registry=registry,
+        generation=generation,
+        adapter=adapter,
+        publisher=publisher,
+    )
     worker.start()
 
     await registry.accept_frame("session-1", accepted_frame("frame-1"))
@@ -213,6 +303,7 @@ async def test_worker_cancellation_during_inference_does_not_record_failure() ->
     assert snapshot.processed_frame_count == 0
     assert snapshot.inference_failure_count == 0
     assert snapshot.last_detection_result is None
+    assert publisher.calls == []
 
 
 @pytest.mark.asyncio
@@ -220,11 +311,13 @@ async def test_old_worker_result_is_ignored_after_replacement_generation() -> No
     registry, generation = await prepare_registry()
     manager = FakeConnectionManager()
     adapter = BlockingAdapter()
+    publisher = RecordingPublisher()
     worker = make_worker(
         registry=registry,
         generation=generation,
         adapter=adapter,
         manager=manager,
+        publisher=publisher,
     )
     worker.start()
 
@@ -237,6 +330,7 @@ async def test_old_worker_result_is_ignored_after_replacement_generation() -> No
         frame_recent_id_cache_size=256,
     )
     adapter.release.set()
+    await wait_until_worker_stops(worker)
     await worker.stop()
     snapshot = await registry.get_inference_snapshot("session-1")
 
@@ -246,3 +340,37 @@ async def test_old_worker_result_is_ignored_after_replacement_generation() -> No
     assert snapshot.processed_frame_count == 0
     assert snapshot.inference_failure_count == 0
     assert snapshot.last_detection_result is None
+    assert publisher.calls == []
+
+
+@pytest.mark.asyncio
+async def test_generation_mismatch_record_failure_does_not_publish() -> None:
+    registry, generation = await prepare_registry()
+    adapter = BlockingAdapter()
+    publisher = RecordingPublisher()
+    worker = make_worker(
+        registry=registry,
+        generation=generation,
+        adapter=adapter,
+        publisher=publisher,
+    )
+    worker.start()
+
+    await registry.accept_frame("session-1", accepted_frame("frame-1"))
+    await asyncio.wait_for(adapter.started.wait(), timeout=1)
+    new_generation = await registry.prepare_connection(
+        "session-1",
+        frame_queue_max_size=2,
+        frame_recent_id_cache_size=256,
+    )
+    adapter.release.set()
+    await wait_until_worker_stops(worker)
+    await worker.stop()
+    snapshot = await registry.get_inference_snapshot("session-1")
+
+    assert new_generation == generation + 1
+    assert snapshot is not None
+    assert snapshot.connection_generation == new_generation
+    assert snapshot.processed_frame_count == 0
+    assert snapshot.last_detection_result is None
+    assert publisher.calls == []

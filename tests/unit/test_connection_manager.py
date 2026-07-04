@@ -22,6 +22,18 @@ class FakeWebSocket:
         self.close_calls.append((code, reason))
 
 
+class BlockingSendWebSocket(FakeWebSocket):
+    def __init__(self) -> None:
+        super().__init__()
+        self.send_started = asyncio.Event()
+        self.release_send = asyncio.Event()
+
+    async def send_json(self, message: dict[str, Any]) -> None:
+        self.send_started.set()
+        await self.release_send.wait()
+        self.sent.append(message)
+
+
 @pytest.mark.asyncio
 async def test_register_get_send_disconnect_and_close() -> None:
     manager = ConnectionManager()
@@ -75,6 +87,33 @@ async def test_send_json_to_current_uses_object_identity() -> None:
 
     assert await manager.send_json_to_current("session-1", first, {"type": "PING"}) is True
     assert first.sent == [{"type": "PING"}]
+
+
+@pytest.mark.asyncio
+async def test_send_json_to_current_serializes_replacement_until_send_finishes() -> None:
+    manager = ConnectionManager()
+    first = BlockingSendWebSocket()
+    second = FakeWebSocket()
+    await manager.register("session-1", first)
+
+    send_task = asyncio.create_task(
+        manager.send_json_to_current("session-1", first, {"type": "DETECTION_UPDATE"})
+    )
+    await asyncio.wait_for(first.send_started.wait(), timeout=1)
+
+    register_task = asyncio.create_task(manager.register("session-1", second))
+    await asyncio.sleep(0)
+
+    assert not register_task.done()
+
+    first.release_send.set()
+    assert await asyncio.wait_for(send_task, timeout=1) is True
+    previous = await asyncio.wait_for(register_task, timeout=1)
+
+    assert previous is not None
+    assert previous.websocket is first
+    assert first.sent == [{"type": "DETECTION_UPDATE"}]
+    assert (await manager.get("session-1")).websocket is second
 
 
 @pytest.mark.asyncio

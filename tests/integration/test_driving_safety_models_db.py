@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError, OperationalError
 
+from app.core.enums import BehaviorType
 from app.db.session import AsyncSessionLocal, dispose_engine
 from app.models import (
     Account,
@@ -311,6 +312,23 @@ async def test_behavior_event_checks_are_enforced() -> None:
     session_id = await create_active_session(profile_ids[0])
 
     try:
+        async with AsyncSessionLocal() as session:
+            session.add_all(
+                [
+                    make_behavior_event(session_id, behavior_type=behavior_type.value)
+                    for behavior_type in BehaviorType
+                ]
+            )
+            await session.commit()
+
+        async with AsyncSessionLocal() as session:
+            allowed_count = await session.scalar(
+                select(func.count())
+                .select_from(BehaviorEvent)
+                .where(BehaviorEvent.session_id == session_id)
+            )
+
+        assert allowed_count == len(BehaviorType)
         await assert_integrity_error(make_behavior_event(session_id, behavior_type="NORMAL"))
         await assert_integrity_error(
             make_behavior_event(session_id, average_confidence=Decimal("1.1000"))

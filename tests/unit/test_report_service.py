@@ -6,9 +6,20 @@ from app.core.exceptions import AppException
 from app.repositories.report_repository import BehaviorTypeAggregate
 from app.services.report_service import CANONICAL_BEHAVIOR_TYPES, ReportService
 
+EXPECTED_CANONICAL_BEHAVIOR_TYPES = [
+    "DROWSINESS",
+    "PHONE_USE",
+    "FOOD_OR_DRINK",
+    "GAZE_AWAY",
+    "SECONDARY_TASK",
+    "REACHING_BEHIND",
+    "SMOKING",
+]
+
 
 def test_behavior_filter_defaults_to_all_canonical_types() -> None:
-    assert ReportService.parse_behavior_types(None) == CANONICAL_BEHAVIOR_TYPES
+    assert CANONICAL_BEHAVIOR_TYPES == EXPECTED_CANONICAL_BEHAVIOR_TYPES
+    assert ReportService.parse_behavior_types(None) == EXPECTED_CANONICAL_BEHAVIOR_TYPES
 
 
 @pytest.mark.parametrize(
@@ -17,6 +28,7 @@ def test_behavior_filter_defaults_to_all_canonical_types() -> None:
         ("PHONE_USE", ["PHONE_USE"]),
         (" DROWSINESS , PHONE_USE ", ["DROWSINESS", "PHONE_USE"]),
         ("PHONE_USE,DROWSINESS,PHONE_USE", ["DROWSINESS", "PHONE_USE"]),
+        ("SMOKING,PHONE_USE,SECONDARY_TASK", ["PHONE_USE", "SECONDARY_TASK", "SMOKING"]),
     ],
 )
 def test_behavior_filter_trims_deduplicates_and_preserves_canonical_order(
@@ -26,7 +38,10 @@ def test_behavior_filter_trims_deduplicates_and_preserves_canonical_order(
     assert ReportService.parse_behavior_types(value) == expected
 
 
-@pytest.mark.parametrize("value", ["", "PHONE_USE,", "PHONE_USE,UNKNOWN", "NORMAL"])
+@pytest.mark.parametrize(
+    "value",
+    ["", "PHONE_USE,", "PHONE_USE,UNKNOWN", "NORMAL", "SAFE_DRIVING"],
+)
 def test_behavior_filter_rejects_empty_or_unknown_values(value: str) -> None:
     with pytest.raises(AppException) as exc_info:
         ReportService.parse_behavior_types(value)

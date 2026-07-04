@@ -5,7 +5,9 @@ from typing import Annotated
 from fastapi import Depends, Request, status
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import HTTPConnection
 
+from app.ai.driver_monitoring import DriverMonitoringAdapter
 from app.core.config import Settings, get_settings
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import AppException
@@ -24,6 +26,19 @@ def get_settings_dependency() -> Settings:
     return get_settings()
 
 
+def get_driver_monitoring_adapter(
+    connection: HTTPConnection,
+) -> DriverMonitoringAdapter:
+    adapter = getattr(connection.app.state, "driver_monitoring_adapter", None)
+    if adapter is None:
+        raise AppException(
+            "Driver monitoring adapter is not initialized.",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            error_code=ErrorCode.INTERNAL_SERVER_ERROR,
+        )
+    return adapter
+
+
 async def get_db_session() -> AsyncIterator[AsyncSession]:
     async for session in get_session():
         yield session
@@ -31,6 +46,10 @@ async def get_db_session() -> AsyncIterator[AsyncSession]:
 
 DbSession = Annotated[AsyncSession, Depends(get_db_session)]
 AppSettings = Annotated[Settings, Depends(get_settings_dependency)]
+DriverMonitoringAdapterDep = Annotated[
+    DriverMonitoringAdapter,
+    Depends(get_driver_monitoring_adapter),
+]
 
 
 async def load_current_account(session: AsyncSession, settings: Settings) -> Account:

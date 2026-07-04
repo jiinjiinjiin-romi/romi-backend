@@ -2,7 +2,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 
-from app.api.dependencies import get_settings_dependency
+from app.api.dependencies import DriverMonitoringAdapterDep, get_settings_dependency
 from app.core.config import Settings
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import AppException
@@ -14,8 +14,12 @@ router = APIRouter(tags=["health"])
 
 def get_health_service(
     settings: Annotated[Settings, Depends(get_settings_dependency)],
+    driver_monitoring_adapter: DriverMonitoringAdapterDep,
 ) -> HealthService:
-    return HealthService(settings=settings)
+    return HealthService(
+        settings=settings,
+        driver_monitoring_adapter=driver_monitoring_adapter,
+    )
 
 
 @router.get("/health", response_model=HealthResponse)

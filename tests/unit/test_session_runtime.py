@@ -3,10 +3,13 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.ai.driver_monitoring import DetectionBehaviorType, DetectionResult
-from app.core.enums import DrivingState, LocationSource
+from app.ai.driver_monitoring import DetectionResult, ModelActionType
+from app.ai.prediction_mapper import metadata_from_class_index
+from app.core.enums import BehaviorType, DrivingState, LocationSource
+from app.policies.sliding_window_behavior_policy import BehaviorTransitionType
 from app.realtime.session_runtime import (
     AcceptedFrame,
+    BehaviorRuntimeObserveStatus,
     FrameAcceptStatus,
     FrameMetadata,
     LocationRuntimeApplyStatus,
@@ -41,6 +44,14 @@ async def test_runtime_initial_fields_and_touch_methods() -> None:
     assert runtime.last_inference_latency_ms is None
     assert runtime.processed_frame_count == 0
     assert runtime.inference_failure_count == 0
+    assert runtime.last_behavior_transition is None
+    assert runtime.active_detection_behavior_type is None
+    assert runtime.active_event_behavior_type is None
+    assert runtime.dominant_model_action_type is None
+    assert runtime.active_behavior_started_at is None
+    assert runtime.last_behavior_seen_at is None
+    assert runtime.last_behavior_transition_at is None
+    assert runtime.behavior_policy.sample_count == 0
     assert runtime.active_behavior_event_id is None
     assert runtime.current_intervention_id is None
     assert runtime.active_conversation_id is None
@@ -211,15 +222,46 @@ def accepted_frame(frame_id: str, captured_at: datetime | None = None) -> Accept
 
 def detection_result(frame_id: str = "frame-1") -> DetectionResult:
     timestamp = datetime(2026, 6, 28, 3, 10, tzinfo=UTC)
+    metadata = metadata_from_class_index(0)
     return DetectionResult(
         session_id="session-1",
         frame_id=frame_id,
-        behavior_type=DetectionBehaviorType.NORMAL,
+        model_action_type=metadata.action_type,
+        model_class_code=metadata.class_code,
+        model_class_label=metadata.class_label,
+        behavior_type=metadata.detection_behavior_type,
         confidence=0.99,
         model_version="vit-dms-1.0.0",
         captured_at=timestamp,
         inference_started_at=timestamp,
         inference_completed_at=timestamp + timedelta(milliseconds=5),
+        inference_latency_ms=5,
+    )
+
+
+def behavior_detection_result(action_type: ModelActionType, frame_number: int) -> DetectionResult:
+    timestamp = datetime(2026, 6, 28, 3, 10, tzinfo=UTC)
+    metadata = metadata_from_class_index(
+        {
+            ModelActionType.SAFE_DRIVING: 0,
+            ModelActionType.WRITING_MSG_RIGHT: 4,
+            ModelActionType.GPS_OPERATING: 3,
+        }[action_type]
+    )
+    captured_at = timestamp + timedelta(milliseconds=frame_number)
+
+    return DetectionResult(
+        session_id="session-1",
+        frame_id=f"frame-{frame_number}",
+        model_action_type=action_type,
+        model_class_code=metadata.class_code,
+        model_class_label=metadata.class_label,
+        behavior_type=metadata.detection_behavior_type,
+        confidence=0.9,
+        model_version="vit-dms-1.0.0",
+        captured_at=captured_at,
+        inference_started_at=captured_at,
+        inference_completed_at=captured_at + timedelta(milliseconds=5),
         inference_latency_ms=5,
     )
 
@@ -326,6 +368,145 @@ async def test_inference_result_and_failure_recording_are_generation_scoped() ->
 
 
 @pytest.mark.asyncio
+async def test_behavior_observation_records_started_and_cleared_state() -> None:
+    registry = SessionRuntimeRegistry()
+    await registry.get_or_create("session-1")
+    generation = await registry.prepare_connection(
+        "session-1",
+        frame_queue_max_size=2,
+        frame_recent_id_cache_size=256,
+    )
+    assert generation is not None
+
+    for frame_number in [1, 2]:
+        no_transition = await registry.observe_behavior_result(
+            "session-1",
+            connection_generation=generation,
+            result=behavior_detection_result(ModelActionType.WRITING_MSG_RIGHT, frame_number),
+        )
+        assert no_transition.status == BehaviorRuntimeObserveStatus.NO_TRANSITION
+
+    started = await registry.observe_behavior_result(
+        "session-1",
+        connection_generation=generation,
+        result=behavior_detection_result(ModelActionType.WRITING_MSG_RIGHT, 3),
+    )
+    started_snapshot = await registry.get_behavior_snapshot("session-1")
+
+    assert started.status == BehaviorRuntimeObserveStatus.TRANSITION_RECORDED
+    assert started.transition is not None
+    assert started.transition.transition_type == BehaviorTransitionType.STARTED
+    assert started_snapshot is not None
+    assert started_snapshot.active_event_behavior_type is not None
+    assert started_snapshot.dominant_model_action_type == ModelActionType.WRITING_MSG_RIGHT
+    assert await registry.record_active_behavior_event(
+        "session-1",
+        connection_generation=generation,
+        behavior_type=BehaviorType.PHONE_USE,
+        event_id="event-1",
+    )
+
+    for frame_number in [4, 5]:
+        await registry.observe_behavior_result(
+            "session-1",
+            connection_generation=generation,
+            result=behavior_detection_result(ModelActionType.SAFE_DRIVING, frame_number),
+        )
+    cleared = await registry.observe_behavior_result(
+        "session-1",
+        connection_generation=generation,
+        result=behavior_detection_result(ModelActionType.SAFE_DRIVING, 6),
+    )
+    cleared_snapshot = await registry.get_behavior_snapshot("session-1")
+
+    assert cleared.status == BehaviorRuntimeObserveStatus.TRANSITION_RECORDED
+    assert cleared.transition is not None
+    assert cleared.transition.transition_type == BehaviorTransitionType.CLEARED
+    assert cleared.previous_active_behavior_event_id == "event-1"
+    assert cleared.previous_active_event_behavior_type == BehaviorType.PHONE_USE
+    assert cleared_snapshot is not None
+    assert cleared_snapshot.active_detection_behavior_type is None
+    assert cleared_snapshot.active_event_behavior_type is None
+    assert cleared_snapshot.active_behavior_event_id is None
+    assert cleared_snapshot.dominant_model_action_type is None
+
+
+@pytest.mark.asyncio
+async def test_behavior_observation_is_generation_scoped() -> None:
+    registry = SessionRuntimeRegistry()
+    await registry.get_or_create("session-1")
+    generation = await registry.prepare_connection(
+        "session-1",
+        frame_queue_max_size=2,
+        frame_recent_id_cache_size=256,
+    )
+    assert generation is not None
+    new_generation = await registry.prepare_connection(
+        "session-1",
+        frame_queue_max_size=2,
+        frame_recent_id_cache_size=256,
+    )
+
+    stale = await registry.observe_behavior_result(
+        "session-1",
+        connection_generation=generation,
+        result=behavior_detection_result(ModelActionType.WRITING_MSG_RIGHT, 1),
+    )
+    snapshot = await registry.get_behavior_snapshot("session-1")
+
+    assert new_generation == generation + 1
+    assert stale.status == BehaviorRuntimeObserveStatus.STALE_GENERATION
+    assert snapshot is not None
+    assert snapshot.policy_sample_count == 0
+    assert snapshot.active_event_behavior_type is None
+
+
+@pytest.mark.asyncio
+async def test_behavior_event_id_updates_are_generation_scoped() -> None:
+    registry = SessionRuntimeRegistry()
+    runtime = await registry.get_or_create("session-1")
+    generation = await registry.prepare_connection(
+        "session-1",
+        frame_queue_max_size=2,
+        frame_recent_id_cache_size=256,
+    )
+    assert generation is not None
+    runtime.active_event_behavior_type = BehaviorType.PHONE_USE
+
+    recorded = await registry.record_active_behavior_event(
+        "session-1",
+        connection_generation=generation,
+        behavior_type=BehaviorType.PHONE_USE,
+        event_id="event-1",
+    )
+    stale_generation = await registry.prepare_connection(
+        "session-1",
+        frame_queue_max_size=2,
+        frame_recent_id_cache_size=256,
+    )
+    stale_record = await registry.record_active_behavior_event(
+        "session-1",
+        connection_generation=generation,
+        behavior_type=BehaviorType.PHONE_USE,
+        event_id="event-old",
+    )
+    stale_clear = await registry.clear_active_behavior_event(
+        "session-1",
+        connection_generation=generation,
+        event_id="event-1",
+    )
+    snapshot = await registry.get_behavior_snapshot("session-1")
+
+    assert recorded is True
+    assert stale_generation == generation + 1
+    assert stale_record is False
+    assert stale_clear is False
+    assert snapshot is not None
+    assert snapshot.connection_generation == stale_generation
+    assert snapshot.active_behavior_event_id is None
+
+
+@pytest.mark.asyncio
 async def test_frame_queue_max_size_one_keeps_only_latest() -> None:
     registry = SessionRuntimeRegistry()
     await registry.get_or_create("session-1", frame_queue_max_size=1)
@@ -378,6 +559,12 @@ async def test_reset_frame_state_preserves_location_state() -> None:
         result=detection_result("frame-1"),
     )
     await registry.record_inference_failure("session-1", connection_generation=0)
+    for frame_number in [1, 2, 3]:
+        await registry.observe_behavior_result(
+            "session-1",
+            connection_generation=0,
+            result=behavior_detection_result(ModelActionType.WRITING_MSG_RIGHT, frame_number),
+        )
 
     reset = await registry.reset_frame_state(
         "session-1",
@@ -398,3 +585,6 @@ async def test_reset_frame_state_preserves_location_state() -> None:
     assert runtime.last_detection_result is None
     assert runtime.processed_frame_count == 0
     assert runtime.inference_failure_count == 0
+    assert runtime.last_behavior_transition is None
+    assert runtime.active_event_behavior_type is None
+    assert runtime.behavior_policy.sample_count == 0

@@ -59,6 +59,9 @@ class BehaviorType(StrEnum):
     PHONE_USE = "PHONE_USE"
     FOOD_OR_DRINK = "FOOD_OR_DRINK"
     GAZE_AWAY = "GAZE_AWAY"
+    SECONDARY_TASK = "SECONDARY_TASK"
+    REACHING_BEHIND = "REACHING_BEHIND"
+    SMOKING = "SMOKING"
 
 
 class BehaviorEventStatus(StrEnum):

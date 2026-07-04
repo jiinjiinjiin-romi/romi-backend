@@ -22,7 +22,10 @@ class BehaviorEvent(Base):
     __tablename__ = "behavior_events"
     __table_args__ = (
         CheckConstraint(
-            "behavior_type IN ('DROWSINESS', 'PHONE_USE', 'FOOD_OR_DRINK', 'GAZE_AWAY')",
+            "behavior_type IN ("
+            "'DROWSINESS', 'PHONE_USE', 'FOOD_OR_DRINK', 'GAZE_AWAY', "
+            "'SECONDARY_TASK', 'REACHING_BEHIND', 'SMOKING'"
+            ")",
             name="ck_behavior_events_behavior_type",
         ),
         CheckConstraint(

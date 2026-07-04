@@ -8,22 +8,24 @@ from fastapi import APIRouter, Depends, Path, WebSocket, status
 from fastapi.responses import JSONResponse
 from starlette.websockets import WebSocketDisconnect
 
-from app.ai.driver_monitoring import DriverMonitoringAdapter
-from app.api.dependencies import get_current_account, get_settings_dependency, load_current_account
+from app.api.dependencies import (
+    DriverMonitoringAdapterDep,
+    get_current_account,
+    get_settings_dependency,
+    load_current_account,
+)
 from app.api.error_handlers import ErrorResponse
-from app.api.v1.endpoints.driving_sessions import get_driver_monitoring_readiness
 from app.core.config import Settings
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import AppException
 from app.core.time import utc_now_for_api_response
 from app.db.session import AsyncSessionLocal
-from app.integrations.driver_monitoring import (
-    DriverMonitoringReadiness,
-    create_driver_monitoring_adapter,
-)
+from app.integrations.driver_monitoring import HealthDriverMonitoringReadiness
 from app.models import Account
 from app.policies.driving_context_policy import DrivingContextPolicy
 from app.realtime.connection_manager import ConnectionManager, ManagedConnection
+from app.realtime.detection_pipeline import DetectionPipeline
+from app.realtime.detection_publisher import DetectionUpdatePublisher
 from app.realtime.frame_handler import FrameIngressService, FrameIngressStatus
 from app.realtime.frame_pairing import FramePairingController
 from app.realtime.heartbeat import HeartbeatController
@@ -40,6 +42,7 @@ from app.realtime.protocol import (
     parse_client_text_message,
 )
 from app.realtime.session_runtime import SessionRuntimeRegistry
+from app.services.behavior_event_service import BehaviorEventService
 from app.services.location_update_service import (
     LocationUpdateResultStatus,
     LocationUpdateService,
@@ -52,12 +55,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["websocket"])
 
 SettingsDep = Annotated[Settings, Depends(get_settings_dependency)]
-DriverMonitoringReadinessDep = Annotated[
-    DriverMonitoringReadiness,
-    Depends(get_driver_monitoring_readiness),
-]
 SessionPath = Annotated[str, Path(alias="sessionId")]
-MODEL_NOT_AVAILABLE_MESSAGE = "Driver monitoring model is not available."
 
 PROTOCOL_ERROR_MESSAGE = "현재 지원하지 않는 WebSocket 메시지입니다."
 INTERNAL_ERROR_MESSAGE = "실시간 연결 처리 중 오류가 발생했습니다."
@@ -81,7 +79,7 @@ async def connect_driving_session_websocket(
     websocket: WebSocket,
     session_id: SessionPath,
     settings: SettingsDep,
-    readiness: DriverMonitoringReadinessDep,
+    adapter: DriverMonitoringAdapterDep,
 ) -> None:
     parsed_session_id = await _parse_session_id_or_deny(websocket, session_id)
     if parsed_session_id is None:
@@ -90,20 +88,13 @@ async def connect_driving_session_websocket(
     try:
         async with AsyncSessionLocal() as db_session:
             account = await _resolve_current_account(websocket, db_session, settings)
-            service = WebSocketSessionService(session=db_session, readiness=readiness)
+            service = WebSocketSessionService(
+                session=db_session,
+                readiness=HealthDriverMonitoringReadiness(adapter),
+            )
             await service.validate_connection(account=account, session_id=parsed_session_id)
     except AppException as exc:
         await _send_app_denial_response(websocket, exc)
-        return
-
-    adapter = _driver_monitoring_adapter(websocket, settings)
-    if not await adapter.is_ready():
-        await _send_denial_response(
-            websocket,
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            message=MODEL_NOT_AVAILABLE_MESSAGE,
-            error_code=ErrorCode.MODEL_NOT_AVAILABLE,
-        )
         return
 
     connection_manager = _connection_manager(websocket)
@@ -143,6 +134,20 @@ async def connect_driving_session_websocket(
         runtime_registry=runtime_registry,
         max_frame_bytes=settings.ws_max_frame_bytes,
     )
+    detection_publisher = DetectionUpdatePublisher(connection_manager=connection_manager)
+    behavior_event_service = _behavior_event_service(
+        websocket=websocket,
+        runtime_registry=runtime_registry,
+    )
+    detection_pipeline = DetectionPipeline(
+        session_id=parsed_session_id,
+        websocket=websocket,
+        connection_generation=connection_generation,
+        connection_manager=connection_manager,
+        runtime_registry=runtime_registry,
+        detection_publisher=detection_publisher,
+        behavior_event_service=behavior_event_service,
+    )
 
     async def send_frame_timeout_error(_: FrameMetaMessage) -> None:
         await _send_frame_error(
@@ -166,6 +171,7 @@ async def connect_driving_session_websocket(
             connection_manager=connection_manager,
             runtime_registry=runtime_registry,
             adapter=adapter,
+            detection_pipeline=detection_pipeline,
         )
         inference_worker.start()
 
@@ -634,11 +640,13 @@ def _location_update_service(
     )
 
 
-def _driver_monitoring_adapter(
+def _behavior_event_service(
+    *,
     websocket: WebSocket,
-    settings: Settings,
-) -> DriverMonitoringAdapter:
-    factory = getattr(websocket.app.state, "driver_monitoring_adapter_factory", None)
+    runtime_registry: SessionRuntimeRegistry,
+) -> BehaviorEventService:
+    factory = getattr(websocket.app.state, "behavior_event_service_factory", None)
     if factory is not None:
-        return factory(settings=settings)
-    return create_driver_monitoring_adapter(settings)
+        return factory(runtime_registry=runtime_registry)
+
+    return BehaviorEventService(runtime_registry=runtime_registry)

@@ -60,7 +60,7 @@ def test_behavior_report_schema_serializes_contract_fields_only() -> None:
         total_event_count=1,
         statistics=[
             BehaviorTypeStatisticResponse(
-                behavior_type="PHONE_USE",
+                behavior_type="SMOKING",
                 event_count=1,
                 total_duration_ms=6000,
                 average_duration_ms=6000,
@@ -77,7 +77,7 @@ def test_behavior_report_schema_serializes_contract_fields_only() -> None:
     payload = response.model_dump(by_alias=True, mode="json")
 
     assert payload["totalEventCount"] == 1
-    assert payload["statistics"][0]["behaviorType"] == "PHONE_USE"
+    assert payload["statistics"][0]["behaviorType"] == "SMOKING"
     assert payload["statistics"][0]["averageConfidence"] == 0.8765
     assert payload["hourlyCounts"] == [{"hour": 8, "count": 1}]
     assert "eventId" not in payload["statistics"][0]

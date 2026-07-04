@@ -33,6 +33,10 @@ async def db_ok() -> None:
     return None
 
 
+async def vit_ok() -> bool:
+    return True
+
+
 def get_test_health_service() -> HealthService:
     settings = Settings(
         mysql_password="test-password",
@@ -46,7 +50,7 @@ def get_test_health_service() -> HealthService:
         email_password="",
         email_from="",
     )
-    return HealthService(settings=settings, db_checker=db_ok)
+    return HealthService(settings=settings, db_checker=db_ok, vit_model_checker=vit_ok)
 
 
 def test_create_app_succeeds() -> None:

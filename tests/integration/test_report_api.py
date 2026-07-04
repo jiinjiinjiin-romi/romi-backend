@@ -236,6 +236,30 @@ async def seed_report_data(prefix: str = "report-api") -> dict[str, object]:
             duration_ms=1000,
             average_confidence=Decimal("0.5000"),
         )
+        secondary_task = make_event(
+            middle_session.id,
+            behavior_type="SECONDARY_TASK",
+            started_at=datetime(2026, 6, 14, 5, 0, 0),
+            risk_level=2,
+            duration_ms=2000,
+            average_confidence=Decimal("0.6500"),
+        )
+        reaching_behind = make_event(
+            end_boundary_session.id,
+            behavior_type="REACHING_BEHIND",
+            started_at=datetime(2026, 6, 30, 14, 50, 0),
+            risk_level=3,
+            duration_ms=2500,
+            average_confidence=Decimal("0.7500"),
+        )
+        smoking = make_event(
+            boundary_session.id,
+            behavior_type="SMOKING",
+            started_at=datetime(2026, 6, 1, 2, 0, 0),
+            risk_level=2,
+            duration_ms=3500,
+            average_confidence=Decimal("0.8800"),
+        )
         active_event = make_event(
             active_session.id,
             behavior_type="PHONE_USE",
@@ -278,6 +302,9 @@ async def seed_report_data(prefix: str = "report-api") -> dict[str, object]:
                 drowsiness,
                 gaze_away,
                 food_or_drink,
+                secondary_task,
+                reaching_behind,
+                smoking,
                 active_event,
                 excluded_event,
                 other_event,
@@ -417,6 +444,9 @@ async def test_report_summary_api_aggregates_filtered_behavior_and_comparison(
             "PHONE_USE": 0,
             "FOOD_OR_DRINK": 0,
             "GAZE_AWAY": 0,
+            "SECONDARY_TASK": 0,
+            "REACHING_BEHIND": 0,
+            "SMOKING": 0,
         }
         assert empty_payload["dailySafetyScores"] == []
     finally:
@@ -446,12 +476,15 @@ async def test_behavior_event_report_api_aggregates_by_type_risk_and_seoul_hour(
 
         assert response.status_code == 200
         payload = response.json()
-        assert payload["totalEventCount"] == 5
+        assert payload["totalEventCount"] == 8
         assert [item["behaviorType"] for item in payload["statistics"]] == [
             "DROWSINESS",
             "PHONE_USE",
             "FOOD_OR_DRINK",
             "GAZE_AWAY",
+            "SECONDARY_TASK",
+            "REACHING_BEHIND",
+            "SMOKING",
         ]
 
         by_type = {item["behaviorType"]: item for item in payload["statistics"]}
@@ -469,13 +502,19 @@ async def test_behavior_event_report_api_aggregates_by_type_risk_and_seoul_hour(
         assert by_type["DROWSINESS"]["correctedCount"] == 0
         assert by_type["FOOD_OR_DRINK"]["eventCount"] == 1
         assert by_type["GAZE_AWAY"]["eventCount"] == 1
-        assert payload["riskLevelCounts"] == {"0": 1, "1": 2, "2": 1, "3": 1}
+        assert by_type["SECONDARY_TASK"]["eventCount"] == 1
+        assert by_type["REACHING_BEHIND"]["eventCount"] == 1
+        assert by_type["SMOKING"]["eventCount"] == 1
+        assert payload["riskLevelCounts"] == {"0": 1, "1": 2, "2": 3, "3": 2}
         assert payload["hourlyCounts"] == [
             {"hour": 8, "count": 1},
             {"hour": 9, "count": 1},
             {"hour": 10, "count": 1},
+            {"hour": 11, "count": 1},
             {"hour": 12, "count": 1},
             {"hour": 13, "count": 1},
+            {"hour": 14, "count": 1},
+            {"hour": 23, "count": 1},
         ]
 
         filtered = await client.get(
@@ -490,6 +529,19 @@ async def test_behavior_event_report_api_aggregates_by_type_risk_and_seoul_hour(
         assert filtered.json()["totalEventCount"] == 2
         assert [item["behaviorType"] for item in filtered.json()["statistics"]] == [
             "PHONE_USE"
+        ]
+        filtered_new = await client.get(
+            f"/api/v1/profiles/{profile.id}/reports/behavior-events",
+            params={
+                "periodStart": "2026-06-01",
+                "periodEnd": "2026-06-30",
+                "behaviorTypes": "SMOKING",
+            },
+        )
+        assert filtered_new.status_code == 200
+        assert filtered_new.json()["totalEventCount"] == 1
+        assert [item["behaviorType"] for item in filtered_new.json()["statistics"]] == [
+            "SMOKING"
         ]
     finally:
         app.dependency_overrides.clear()
@@ -559,7 +611,7 @@ async def test_report_sessions_api_paginates_sorts_and_uses_fixed_query_count(
         assert middle["distanceMeters"] == 20000
         assert middle["averageSpeedKph"] is None
         assert middle["safetyScore"] is None
-        assert middle["behaviorEventCount"] == 2
+        assert middle["behaviorEventCount"] == 3
         assert middle["interventionCount"] == 0
         assert middle["correctedBehaviorCount"] == 0
         assert middle["behaviorCorrectionRate"] == 0.0
@@ -576,7 +628,7 @@ async def test_report_sessions_api_paginates_sorts_and_uses_fixed_query_count(
         )
         assert second_page.status_code == 200
         assert second_page.json()["items"][0]["sessionId"] == data["boundary_session_id"]
-        assert second_page.json()["items"][0]["behaviorEventCount"] == 3
+        assert second_page.json()["items"][0]["behaviorEventCount"] == 4
         assert second_page.json()["items"][0]["interventionCount"] == 4
         assert second_page.json()["items"][0]["correctedBehaviorCount"] == 2
         assert second_page.json()["items"][0]["behaviorCorrectionRate"] == 50.0

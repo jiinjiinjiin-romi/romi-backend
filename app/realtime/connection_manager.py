@@ -60,12 +60,13 @@ class ConnectionManager:
             return current is not None and current.websocket is websocket
 
     async def send_json(self, session_id: str, message: dict[str, Any]) -> bool:
-        connection = await self.get(session_id)
-        if connection is None:
-            return False
+        async with self._lock:
+            connection = self._connections.get(session_id)
+            if connection is None:
+                return False
 
-        await connection.send_json(message)
-        return True
+            await connection.send_json(message)
+            return True
 
     async def send_json_to_current(
         self,
@@ -73,12 +74,13 @@ class ConnectionManager:
         websocket: WebSocket,
         message: dict[str, Any],
     ) -> bool:
-        connection = await self.get(session_id)
-        if connection is None or connection.websocket is not websocket:
-            return False
+        async with self._lock:
+            connection = self._connections.get(session_id)
+            if connection is None or connection.websocket is not websocket:
+                return False
 
-        await connection.send_json(message)
-        return True
+            await connection.send_json(message)
+            return True
 
     async def close(self, session_id: str, *, code: int, reason: str) -> bool:
         async with self._lock:

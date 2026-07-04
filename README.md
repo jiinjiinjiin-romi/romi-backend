@@ -66,8 +66,12 @@ Do not use `Base.metadata.create_all()` for application schema management.
   - accept-before validation, SESSION_READY, PING/PONG heartbeat, duplicate replacement
   - `LOCATION_UPDATE` receive path, runtime location state, driving-state policy, and throttled `location_samples` persistence
   - `FRAME_META` receive path with next-message binary JPEG pairing, recoverable frame errors, and bounded in-memory latest-frame queue
-  - connection-scoped inference worker consuming the latest-frame queue through a deterministic Mock ViT adapter
-  - internal `NORMAL` detection result state, inference latency, processed-frame count, and failure count
+  - app-scoped DriverMonitoringAdapter created during FastAPI lifespan startup and shared by health, bootstrap, session start, WebSocket handshake, and inference workers
+  - connection-scoped inference worker consuming the latest-frame queue through the app-scoped deterministic Mock ViT adapter
+  - internal `DetectionResult` state with 3MDAD raw model action fields, inference latency, processed-frame count, and failure count
+  - internal `DetectionPipeline` connecting successful detection results to runtime Sliding Window behavior state
+  - internal BehaviorEvent writer persisting Sliding Window STARTED/CLEARED transitions to `behavior_events`
+  - `DETECTION_UPDATE` publishing with `behaviorType`, `modelActionType`, `modelClassCode`, and `modelClassLabel` for successful inference results on the current WebSocket connection
 - REST 3-6 integration, regression, and OpenAPI contract verification
 - Docker Compose stack for backend and MySQL
 - Ruff, pytest, compileall, OpenAPI, and smoke checks
@@ -78,8 +82,8 @@ Do not use `Base.metadata.create_all()` for application schema management.
 - Account CRUD API
 - Search History creation REST API
 - Agent messages, Gemini handling, ToolExecution handling, and Report Export APIs
-- Real ViT inference, DETECTION_UPDATE, and Agent utterance handling
-- JPEG decode/preprocessing, sliding window, behavior event creation, risk policy, and interventions
+- Real ViT inference and Agent utterance handling
+- JPEG decode/preprocessing, risk policy, and interventions
 - Gemini calls, email delivery, and report file generation
 
 The default admin account is only seed data for early development. It is not a
@@ -249,6 +253,12 @@ policy is applied by the future writer that creates search history rows.
 `DRIVER_MONITORING_ADAPTER=REAL`, the real adapter is not implemented yet and
 the start request returns `503 MODEL_NOT_AVAILABLE`.
 
+The DriverMonitoringAdapter is an app-scoped resource. FastAPI lifespan startup
+creates one adapter and stores it in `app.state.driver_monitoring_adapter`.
+Health, bootstrap capabilities, driving-session start, WebSocket handshake, and
+the connection-scoped inference worker use that same instance. Tests can replace
+it by assigning `app.state.driver_monitoring_adapter = fake_adapter`.
+
 ```powershell
 $startBody = @{
     profileId = $profile.id
@@ -318,6 +328,10 @@ error shape as HTTP denial responses:
 503 MODEL_NOT_AVAILABLE
 ```
 
+Readiness is checked on the app-scoped DriverMonitoringAdapter, and the same
+adapter instance is passed to the `InferenceWorker` after accept. WebSocket
+connections and workers do not create adapters.
+
 The first successful server message is `SESSION_READY`:
 
 ```json
@@ -382,7 +396,8 @@ speedKph >= DRIVING_MOVING_SPEED_THRESHOLD_KPH -> MOVING
 `PARKED` is not generated from LOCATION_UPDATE in this phase.
 
 Clients may send camera frames with `FRAME_META` followed immediately by binary
-JPEG bytes. Successful frame ingestion is silent and does not send ACK messages:
+JPEG bytes. Successful frame ingestion has no ACK, but successful inference
+publishes `DETECTION_UPDATE`:
 
 ```json
 {
@@ -406,12 +421,54 @@ cache, and enqueues accepted bytes into a bounded latest-frame queue. When the
 queue is full, the oldest frame is dropped and the latest frame is kept. A
 connection-scoped inference worker consumes accepted frames, calls the selected
 driver-monitoring adapter, and records internal runtime metrics/results. In
-MOCK mode the result is always `NORMAL` with confidence `0.99`.
-`DETECTION_UPDATE` is not sent yet. Frames and detection results are not written
-to DB, files, snapshots, logs, or Base64. Recoverable frame errors are
+MOCK mode the result is always `SAFE_DRIVING` / `AC1` / `safe_driving`, mapped
+to `behaviorType=NORMAL` with confidence `0.99`.
+
+```json
+{
+  "type": "DETECTION_UPDATE",
+  "occurredAt": "2026-07-02T15:20:01.200000Z",
+  "payload": {
+    "sessionId": "67371b45-204c-4d87-b8f7-8a334229a41e",
+    "frameId": "frame-3024",
+    "behaviorType": "NORMAL",
+    "modelActionType": "SAFE_DRIVING",
+    "modelClassCode": "AC1",
+    "modelClassLabel": "safe_driving",
+    "confidence": 0.99,
+    "modelVersion": "vit-dms-1.0.0",
+    "capturedAt": "2026-07-02T15:20:01.123456Z",
+    "inferenceLatencyMs": 0
+  }
+}
+```
+
+`NORMAL` results are published so the frontend can confirm camera/inference
+connectivity. `behaviorType` is the normalized frontend category; the model
+action fields expose the raw 3MDAD top-1 class for debugging/detail views.
+`riskLevel`, `behaviorEventId`, `interventionId`, `speechText`, `uiText`, and
+`toolCall` are not part of this message yet. Frames and detection results are
+not written to DB, files, snapshots, logs, or Base64. Recoverable frame errors are
 `INVALID_FRAME_META`, `FRAME_BINARY_EXPECTED`,
 `FRAME_BINARY_TIMEOUT`, `ORPHAN_FRAME_BINARY`, `FRAME_TOO_LARGE`,
 `INVALID_JPEG_FRAME`, and `DUPLICATE_FRAME_ID`.
+
+DB/report `BehaviorType` is separate from realtime `DetectionBehaviorType`.
+After 4-5-0B, stored behavior events and report filters allow exactly
+`DROWSINESS`, `PHONE_USE`, `FOOD_OR_DRINK`, `GAZE_AWAY`, `SECONDARY_TASK`,
+`REACHING_BEHIND`, and `SMOKING`. `NORMAL` remains realtime-only and is not
+stored in `behavior_events`. Raw `ModelActionType` values such as
+`SAFE_DRIVING`, `HAIR_MAKEUP`, `ADJUSTING_RADIO`, `GPS_OPERATING`, and
+`WRITING_MSG_RIGHT` are not DB behavior types. `dominant_model_action_type` was
+not added because Sliding Window and BehaviorEvent writer aggregation semantics
+are not defined yet.
+
+4-5B connects the internal Sliding Window policy to realtime inference through
+`DetectionPipeline` and stores behavior transition state only in
+`SessionRuntime`. This does not change the `DETECTION_UPDATE` payload and does
+not insert `behavior_events` rows. BehaviorEvent writer, risk policy,
+interventions, Gemini, AgentMessage, ToolExecution, and client-facing behavior
+transition messages remain future work.
 
 Local development defaults to MOCK mode, so ViT readiness is UP even when
 `/app/artifacts/models/best_vit.pth` is absent. REAL mode intentionally reports
@@ -532,18 +589,22 @@ curl -i http://localhost:8000/docs
 curl -i http://localhost:8000/openapi.json
 ```
 
-Latest verified result on 2026-07-02 KST:
+Latest verified result on 2026-07-03 KST:
 
 ```text
 Docker Compose verification -> backend/mysql healthy with current working tree
 Docker host port override used for this verification: BACKEND_EXPOSED_PORT=8001, MYSQL_EXPOSED_PORT=3308
+docker compose exec backend alembic current -> 0005_behavior_event_taxonomy (head)
+docker compose exec backend alembic heads -> 0005_behavior_event_taxonomy (head)
 docker compose exec backend ruff check . -> passed
 docker compose exec backend python -m compileall app -> passed
-docker compose exec backend pytest -ra -> 388 passed, 0 skipped, 1 warning
-4-3B1 targeted Docker pytest -> 129 passed, 0 skipped, 1 warning
+docker compose exec backend pytest -ra -> 473 passed, 1 warning
+4-5B targeted Docker pytest -> 49 passed
 MySQL-gated tests -> executed inside Docker Compose; no MYSQL_HOST/MYSQL_PASSWORD skip remains
 Live smoke -> health 200 DEGRADED with database UP and vitModel UP, bootstrap 200, Swagger /docs 200, OpenAPI 200
 Live session start smoke -> MOCK mode created ACTIVE session, returned webSocketUrl, ended COMPLETED, and cleaned up profile
+Live WebSocket smoke -> SESSION_READY then DETECTION_UPDATE for FRAME_META+binary with behaviorType NORMAL, modelActionType SAFE_DRIVING, modelClassCode AC1, modelClassLabel safe_driving, and confidence 0.99
+REAL mode readiness regression -> covered by Docker pytest; live 4-5-0A smoke kept the stack in MOCK mode
 OpenAPI live check -> 27 REST method/path contracts present and WebSocket path absent from REST paths
 tzdata/ZoneInfo smoke -> tzdata 2026.2 and ZoneInfo("Asia/Seoul") passed
 OpenAPI Contract Test -> passed
@@ -564,6 +625,7 @@ SessionRuntime Unit -> passed
 Heartbeat Unit -> passed
 Driving Session WebSocket MySQL Integration -> passed
 Mock Driver Monitoring Adapter Unit -> passed
+Driver Monitoring Adapter lifecycle Unit -> passed
 Inference Worker Unit -> passed
 Report Period Unit -> passed
 Report Sessions N+1 guard -> 2 fixed report-table SELECT statements
@@ -576,19 +638,20 @@ PowerShell smoke -> health DEGRADED with database UP, vitModel UP, Gemini DOWN, 
 PowerShell smoke -> bootstrap and profiles returned 200
 Live WebSocket smoke -> invalid sessionId returned HTTP 422 INVALID_SESSION_ID JSON denial
 Live WebSocket smoke -> random missing session returned HTTP 404 SESSION_NOT_FOUND JSON denial
-Live WebSocket smoke -> SESSION_READY received, FRAME_META+binary sent, no immediate DETECTION_UPDATE/server message, smoke data cleaned up
+Live WebSocket smoke -> SESSION_READY received, FRAME_META+binary sent, DETECTION_UPDATE with model action fields received, smoke data cleaned up
+OpenAPI contract test -> passed
 OpenAPI live check -> current 27 REST method/path contracts present
 OpenAPI live check -> /ws/v1/driving-sessions/{sessionId} absent from REST paths
 Swagger /docs -> 200 OK
-Alembic current/head -> 0004_agent_report_tables
+Alembic current/head -> 0005_behavior_event_taxonomy
 ```
 
-No Alembic revision was created for 4-3B1, and the DB schema did not change.
+No Alembic revision was created for 4-5B, and the DB schema did not change.
 safetyScore is intentionally nullable until the future risk/safety score policy
 is implemented. The report read APIs aggregate stored data on request. Report
 Export, PDF rendering, file download, email sending, Agent message creation,
-Tool executions, Gemini handling, Demo APIs, real ViT inference, DETECTION_UPDATE,
-sliding window/risk/intervention logic, and WebSocket utterance handling remain future work.
+Tool executions, Gemini handling, Demo APIs, real ViT inference,
+BehaviorEvent writing, risk/intervention logic, and WebSocket utterance handling remain future work.
 
 ## Stop Containers
 

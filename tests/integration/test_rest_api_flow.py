@@ -6,8 +6,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import delete, func, select
 
+from app.ai.driver_monitoring import InferenceFrame
 from app.api.dependencies import get_current_account
-from app.api.v1.endpoints.driving_sessions import get_driver_monitoring_readiness
 from app.core.time import utc_now_for_mysql_datetime
 from app.db.session import AsyncSessionLocal, dispose_engine
 from app.models import (
@@ -30,9 +30,14 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-class FakeReadiness:
-    async def is_available(self) -> bool:
+class FakeDriverMonitoringAdapter:
+    model_version = "vit-dms-1.0.0"
+
+    async def is_ready(self) -> bool:
         return True
+
+    async def predict(self, frame: InferenceFrame):
+        raise AssertionError("predict should not be called by REST flow")
 
 
 def profile_payload() -> dict[str, object]:
@@ -93,7 +98,7 @@ def override_dependencies(app, account: Account) -> None:
         return account
 
     app.dependency_overrides[get_current_account] = current_account_override
-    app.dependency_overrides[get_driver_monitoring_readiness] = FakeReadiness
+    app.state.driver_monitoring_adapter = FakeDriverMonitoringAdapter()
 
 
 async def seed_search_histories(profile_id: str) -> None:
