@@ -5,7 +5,12 @@ import pytest
 from pydantic import ValidationError
 
 from app.models import DriverProfile
-from app.schemas.profile import ProfileCreateRequest, ProfileResponse, ProfileUpdateRequest
+from app.schemas.profile import (
+    DEFAULT_BEHAVIOR_WARNING_SENSITIVITY,
+    ProfileCreateRequest,
+    ProfileResponse,
+    ProfileUpdateRequest,
+)
 
 
 def make_create_payload(**overrides: object) -> dict[str, object]:
@@ -14,11 +19,10 @@ def make_create_payload(**overrides: object) -> dict[str, object]:
         "agentCallName": " Codex ",
         "reportEmail": "codex@example.com",
         "agentPersonality": "FRIENDLY",
-        "warningSensitivity": "MEDIUM",
+        "behaviorWarningSensitivity": DEFAULT_BEHAVIOR_WARNING_SENSITIVITY,
         "ttsVoiceId": None,
         "ttsSpeed": 1.0,
         "guidanceVolume": 70,
-        "theme": "SYSTEM",
     }
     payload.update(overrides)
     return payload
@@ -34,6 +38,7 @@ def test_profile_response_serializes_camel_case_without_account_id() -> None:
         report_email="codex@example.com",
         agent_personality="FRIENDLY",
         warning_sensitivity="MEDIUM",
+        behavior_warning_sensitivity=DEFAULT_BEHAVIOR_WARNING_SENSITIVITY,
         tts_voice_id=None,
         tts_speed=Decimal("1.20"),
         guidance_volume=70,
@@ -50,6 +55,7 @@ def test_profile_response_serializes_camel_case_without_account_id() -> None:
 
     assert "accountId" not in payload
     assert payload["displayName"] == "Codex Driver"
+    assert payload["behaviorWarningSensitivity"]["DROWSINESS"] == "HIGH"
     assert payload["ttsSpeed"] == 1.2
     assert payload["lastUsedAt"] == "2026-06-30T01:02:03.123456Z"
     assert payload["createdAt"] == "2026-06-29T01:02:03.123456Z"
@@ -74,6 +80,16 @@ def test_profile_create_request_trims_supported_text_fields() -> None:
         ("reportEmail", "not-an-email", "INVALID_EMAIL_FORMAT"),
         ("agentPersonality", "LOUD", "INVALID_AGENT_PERSONALITY"),
         ("warningSensitivity", "EXTREME", "INVALID_WARNING_SENSITIVITY"),
+        (
+            "behaviorWarningSensitivity",
+            {**DEFAULT_BEHAVIOR_WARNING_SENSITIVITY, "PHONE_USE": "EXTREME"},
+            "INVALID_WARNING_SENSITIVITY",
+        ),
+        (
+            "behaviorWarningSensitivity",
+            {"DROWSINESS": "HIGH"},
+            "INVALID_WARNING_SENSITIVITY",
+        ),
         ("ttsSpeed", 0.49, "INVALID_TTS_SPEED"),
         ("ttsSpeed", 2.01, "INVALID_TTS_SPEED"),
         ("guidanceVolume", -1, "INVALID_PROFILE_SETTING"),
@@ -108,5 +124,10 @@ def test_profile_update_distinguishes_omitted_and_explicit_null_fields() -> None
 
     with pytest.raises(ValidationError) as exc_info:
         ProfileUpdateRequest(displayName=None)
+
+    assert exc_info.value.errors()[0]["type"] == "INVALID_PROFILE_SETTING"
+
+    with pytest.raises(ValidationError) as exc_info:
+        ProfileUpdateRequest(behaviorWarningSensitivity=None)
 
     assert exc_info.value.errors()[0]["type"] == "INVALID_PROFILE_SETTING"

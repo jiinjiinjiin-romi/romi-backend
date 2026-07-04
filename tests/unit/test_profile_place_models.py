@@ -47,6 +47,7 @@ def test_driver_profile_table_columns_and_defaults() -> None:
         "report_email",
         "agent_personality",
         "warning_sensitivity",
+        "behavior_warning_sensitivity",
         "tts_voice_id",
         "tts_speed",
         "guidance_volume",
@@ -82,6 +83,8 @@ def test_driver_profile_table_columns_and_defaults() -> None:
     assert isinstance(table.c.warning_sensitivity.type, String)
     assert table.c.warning_sensitivity.type.length == 10
     assert table.c.warning_sensitivity.default.arg == WarningSensitivity.MEDIUM.value
+    assert isinstance(table.c.behavior_warning_sensitivity.type, mysql.JSON)
+    assert not table.c.behavior_warning_sensitivity.nullable
     assert isinstance(table.c.theme.type, String)
     assert table.c.theme.type.length == 10
     assert table.c.theme.default.arg == Theme.SYSTEM.value

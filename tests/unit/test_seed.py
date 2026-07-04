@@ -89,6 +89,7 @@ async def test_seed_creates_default_admin_account() -> None:
 
     assert result == "created"
     account = session.accounts["00000000-0000-0000-0000-000000000001"]
+    assert account.display_name == "안정현"
     assert account.email == "admin@example.com"
 
 
@@ -96,6 +97,7 @@ async def test_seed_is_idempotent_for_existing_matching_account() -> None:
     session = FakeSession()
     session.accounts["00000000-0000-0000-0000-000000000001"] = Account(
         id="00000000-0000-0000-0000-000000000001",
+        display_name="안정현",
         email="admin@example.com",
     )
 
@@ -109,6 +111,7 @@ async def test_seed_updates_email_for_existing_admin_id() -> None:
     session = FakeSession()
     session.accounts["00000000-0000-0000-0000-000000000001"] = Account(
         id="00000000-0000-0000-0000-000000000001",
+        display_name="안정현",
         email="old@example.com",
     )
 
@@ -118,6 +121,7 @@ async def test_seed_updates_email_for_existing_admin_id() -> None:
     )
 
     assert result == "updated"
+    assert session.accounts["00000000-0000-0000-0000-000000000001"].display_name == "안정현"
     assert session.accounts["00000000-0000-0000-0000-000000000001"].email == "new@example.com"
 
 
@@ -125,6 +129,7 @@ async def test_seed_fails_when_email_belongs_to_another_account() -> None:
     session = FakeSession()
     session.conflicting_account = Account(
         id="00000000-0000-0000-0000-000000000099",
+        display_name="안정현",
         email="admin@example.com",
     )
 
@@ -233,6 +238,7 @@ async def test_run_seed_rolls_back_on_failure() -> None:
     session = FakeSession()
     session.conflicting_account = Account(
         id="00000000-0000-0000-0000-000000000099",
+        display_name="안정현",
         email="admin@example.com",
     )
 

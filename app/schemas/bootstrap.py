@@ -9,7 +9,14 @@ class BootstrapCapabilitiesResponse(ApiBaseModel):
     demo_mode: bool
 
 
+class BootstrapAccountResponse(ApiBaseModel):
+    id: str
+    display_name: str
+    email: str | None
+
+
 class BootstrapResponse(ApiBaseModel):
+    account: BootstrapAccountResponse
     profiles: list[ProfileSummaryResponse]
     selected_profile_id: str | None
     profile_limit: int

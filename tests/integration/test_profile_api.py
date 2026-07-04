@@ -10,7 +10,7 @@ from app.core.config import get_settings
 from app.core.exceptions import AppException
 from app.db.session import AsyncSessionLocal, dispose_engine
 from app.models import Account, DriverProfile, DrivingSession
-from app.schemas.profile import ProfileCreateRequest
+from app.schemas.profile import DEFAULT_BEHAVIOR_WARNING_SENSITIVITY, ProfileCreateRequest
 from app.services.profile_service import ProfileService
 
 pytestmark = pytest.mark.skipif(
@@ -25,17 +25,17 @@ def profile_payload(name: str = "Codex API") -> dict[str, object]:
         "agentCallName": "Codex",
         "reportEmail": "codex-api@example.com",
         "agentPersonality": "FRIENDLY",
-        "warningSensitivity": "MEDIUM",
+        "behaviorWarningSensitivity": DEFAULT_BEHAVIOR_WARNING_SENSITIVITY,
         "ttsVoiceId": None,
         "ttsSpeed": 1.0,
         "guidanceVolume": 70,
-        "theme": "SYSTEM",
     }
 
 
 async def create_test_account() -> Account:
     account = Account(
         id=str(uuid4()),
+        display_name="Codex Tester",
         email=f"profile-api-{uuid4().hex}@example.com",
     )
     async with AsyncSessionLocal() as session:
@@ -63,7 +63,9 @@ async def test_bootstrap_uses_seeded_current_account(client) -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert set(payload) == {"profiles", "selectedProfileId", "profileLimit", "capabilities"}
+    assert set(payload) == {"account", "profiles", "selectedProfileId", "profileLimit", "capabilities"}
+    assert payload["account"]["displayName"] == "안정현"
+    assert payload["account"]["email"] == "admin@example.com"
     assert payload["profileLimit"] == 5
     assert set(payload["capabilities"]) == {
         "vitModelAvailable",
@@ -89,6 +91,7 @@ async def test_profile_api_crud_select_and_validation(app, client) -> None:
         profile_id = created["id"]
         assert "accountId" not in created
         assert created["displayName"] == "Codex API"
+        assert created["behaviorWarningSensitivity"]["DROWSINESS"] == "HIGH"
         assert created["ttsSpeed"] == 1.0
 
         list_response = await client.get("/api/v1/profiles")
@@ -114,17 +117,19 @@ async def test_profile_api_crud_select_and_validation(app, client) -> None:
             json={
                 "agentCallName": "Codex Updated",
                 "reportEmail": None,
-                "warningSensitivity": "HIGH",
+                "behaviorWarningSensitivity": {
+                    **DEFAULT_BEHAVIOR_WARNING_SENSITIVITY,
+                    "FOOD_OR_DRINK": "LOW",
+                },
                 "ttsSpeed": 0.9,
                 "guidanceVolume": 80,
-                "theme": "DARK",
             },
         )
         assert update_response.status_code == 200
         updated = update_response.json()
         assert updated["agentCallName"] == "Codex Updated"
         assert updated["reportEmail"] is None
-        assert updated["warningSensitivity"] == "HIGH"
+        assert updated["behaviorWarningSensitivity"]["FOOD_OR_DRINK"] == "LOW"
 
         select_response = await client.post(f"/api/v1/profiles/{profile_id}/select")
         assert select_response.status_code == 200

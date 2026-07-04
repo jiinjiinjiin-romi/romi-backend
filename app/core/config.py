@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     )
     db_pool_recycle_seconds: int = 1800
     default_admin_account_id: str = "00000000-0000-0000-0000-000000000001"
+    default_admin_display_name: str = "안정현"
     default_admin_email: str | None = "admin@example.com"
     backend_exposed_port: int = 8000
     tmap_app_key: str = Field(default="", repr=False)
@@ -118,6 +119,14 @@ class Settings(BaseSettings):
     @classmethod
     def validate_default_admin_account_id(cls, value: object) -> str:
         return str(UUID(str(value)))
+
+    @field_validator("default_admin_display_name", mode="before")
+    @classmethod
+    def normalize_default_admin_display_name(cls, value: object) -> str:
+        display_name = str(value).strip()
+        if not display_name or len(display_name) > 50:
+            raise ValueError("Default admin display name must be between 1 and 50 characters.")
+        return display_name
 
     @field_validator("default_admin_email", mode="before")
     @classmethod

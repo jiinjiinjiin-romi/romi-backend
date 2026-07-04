@@ -62,6 +62,7 @@ class SeedError(RuntimeError):
 
 async def seed_default_admin_account(session: AsyncSession, settings: Settings) -> SeedResult:
     admin_id = settings.default_admin_account_id
+    admin_display_name = settings.default_admin_display_name
     admin_email = settings.default_admin_email
 
     if admin_email is not None:
@@ -78,10 +79,11 @@ async def seed_default_admin_account(session: AsyncSession, settings: Settings) 
     account = await session.get(Account, admin_id)
 
     if account is None:
-        session.add(Account(id=admin_id, email=admin_email))
+        session.add(Account(id=admin_id, display_name=admin_display_name, email=admin_email))
         return "created"
 
-    if account.email != admin_email:
+    if account.display_name != admin_display_name or account.email != admin_email:
+        account.display_name = admin_display_name
         account.email = admin_email
         return "updated"
 

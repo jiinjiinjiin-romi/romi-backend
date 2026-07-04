@@ -10,7 +10,11 @@ from app.core.error_codes import ErrorCode
 from app.core.exceptions import AppException
 from app.models import Account
 from app.repositories.profile_repository import ProfileRepository
-from app.schemas.bootstrap import BootstrapCapabilitiesResponse, BootstrapResponse
+from app.schemas.bootstrap import (
+    BootstrapAccountResponse,
+    BootstrapCapabilitiesResponse,
+    BootstrapResponse,
+)
 from app.schemas.profile import PROFILE_LIMIT, ProfileSummaryResponse
 from app.services.health_service import HealthService
 
@@ -55,6 +59,11 @@ class BootstrapService:
         )
 
         return BootstrapResponse(
+            account=BootstrapAccountResponse(
+                id=account.id,
+                display_name=account.display_name,
+                email=account.email,
+            ),
             profiles=[ProfileSummaryResponse.model_validate(profile) for profile in profiles],
             selected_profile_id=selected_profile.id if selected_profile is not None else None,
             profile_limit=PROFILE_LIMIT,

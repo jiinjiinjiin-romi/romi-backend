@@ -8,7 +8,7 @@ from sqlalchemy import CHAR, CheckConstraint, ForeignKey, Index, String, Text, t
 from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.core.enums import AgentPersonality, Theme, WarningSensitivity
+from app.core.enums import AgentPersonality, BehaviorType, Theme, WarningSensitivity
 from app.db.base import Base
 from app.utils.uuid import generate_uuid4
 
@@ -18,6 +18,18 @@ if TYPE_CHECKING:
     from app.models.report_export import ReportExport
     from app.models.saved_place import SavedPlace
     from app.models.search_history import SearchHistory
+
+
+def default_behavior_warning_sensitivity() -> dict[str, str]:
+    return {
+        BehaviorType.DROWSINESS.value: WarningSensitivity.HIGH.value,
+        BehaviorType.PHONE_USE.value: WarningSensitivity.HIGH.value,
+        BehaviorType.FOOD_OR_DRINK.value: WarningSensitivity.MEDIUM.value,
+        BehaviorType.GAZE_AWAY.value: WarningSensitivity.HIGH.value,
+        BehaviorType.SECONDARY_TASK.value: WarningSensitivity.MEDIUM.value,
+        BehaviorType.REACHING_BEHIND.value: WarningSensitivity.MEDIUM.value,
+        BehaviorType.SMOKING.value: WarningSensitivity.MEDIUM.value,
+    }
 
 
 class DriverProfile(Base):
@@ -91,6 +103,11 @@ class DriverProfile(Base):
         nullable=False,
         default=WarningSensitivity.MEDIUM.value,
         server_default=text("'MEDIUM'"),
+    )
+    behavior_warning_sensitivity: Mapped[dict[str, str]] = mapped_column(
+        mysql.JSON,
+        nullable=False,
+        default=default_behavior_warning_sensitivity,
     )
     tts_voice_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     tts_speed: Mapped[Decimal] = mapped_column(

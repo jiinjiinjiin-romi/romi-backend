@@ -8,7 +8,7 @@ def test_account_model_matches_current_scope() -> None:
     table = Account.__table__
 
     assert table.name == "accounts"
-    assert set(table.columns.keys()) == {"id", "email", "created_at", "updated_at"}
+    assert set(table.columns.keys()) == {"id", "display_name", "email", "created_at", "updated_at"}
     assert not table.foreign_keys
 
 
@@ -23,6 +23,9 @@ def test_account_model_column_types_and_nullability() -> None:
     assert isinstance(table.c.email.type, String)
     assert table.c.email.type.length == 320
     assert table.c.email.nullable
+    assert isinstance(table.c.display_name.type, String)
+    assert table.c.display_name.type.length == 50
+    assert not table.c.display_name.nullable
 
     assert isinstance(table.c.created_at.type, mysql.DATETIME)
     assert table.c.created_at.type.fsp == 6
@@ -43,6 +46,9 @@ def test_account_model_constraints_and_mysql_options() -> None:
     }
 
     assert "uq_accounts_email" in unique_constraints
+    assert "ck_accounts_display_name_not_blank" in {
+        constraint.name for constraint in table.constraints
+    }
     assert table.dialect_options["mysql"]["engine"] == "InnoDB"
     assert table.dialect_options["mysql"]["charset"] == "utf8mb4"
     assert table.dialect_options["mysql"]["collate"] == "utf8mb4_0900_ai_ci"

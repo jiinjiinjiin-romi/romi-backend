@@ -54,7 +54,9 @@ async def test_accounts_table_matches_mysql_spec() -> None:
     }
 
     assert "`id` char(36)" in create_sql
+    assert "`display_name` varchar(50) not null" in create_sql
     assert "`email` varchar(320)" in create_sql
+    assert "constraint `ck_accounts_display_name_not_blank` check" in create_sql
     assert "`created_at` datetime(6) not null" in create_sql
     assert "`updated_at` datetime(6) not null" in create_sql
     assert "default current_timestamp(6)" in create_sql
@@ -107,7 +109,7 @@ async def test_seed_fails_without_changing_pk_when_email_belongs_to_another_id()
 
     try:
         async with AsyncSessionLocal() as session:
-            session.add(Account(id=existing_id, email=email))
+            session.add(Account(id=existing_id, display_name="기존 계정", email=email))
             await session.commit()
 
         with pytest.raises(SeedError):
@@ -118,6 +120,7 @@ async def test_seed_fails_without_changing_pk_when_email_belongs_to_another_id()
             requested_account = await session.get(Account, requested_id)
 
         assert existing_account is not None
+        assert existing_account.display_name == "기존 계정"
         assert existing_account.email == email
         assert requested_account is None
     finally:

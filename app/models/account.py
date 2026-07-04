@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CHAR, String, UniqueConstraint, text
+from sqlalchemy import CHAR, CheckConstraint, String, UniqueConstraint, text
 from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -15,6 +15,10 @@ class Account(Base):
     __tablename__ = "accounts"
     __table_args__ = (
         UniqueConstraint("email", name="uq_accounts_email"),
+        CheckConstraint(
+            "CHAR_LENGTH(TRIM(display_name)) > 0",
+            name="ck_accounts_display_name_not_blank",
+        ),
         {
             "mysql_engine": "InnoDB",
             "mysql_charset": "utf8mb4",
@@ -23,6 +27,12 @@ class Account(Base):
     )
 
     id: Mapped[str] = mapped_column(CHAR(36), primary_key=True, nullable=False)
+    display_name: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="안정현",
+        server_default=text("'안정현'"),
+    )
     email: Mapped[str | None] = mapped_column(String(320), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         mysql.DATETIME(fsp=6),
