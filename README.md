@@ -121,6 +121,17 @@ TMAP_REQUEST_TIMEOUT_SECONDS=10
 TMAP_PROXY_CACHE_TTL_MS=30000
 ```
 
+Set CLOVA Voice credentials in `.env` before using `/api/v1/voice/tts`. The
+frontend only calls the backend proxy, so the keys stay server-side.
+
+```env
+CLOVA_VOICE_CLIENT_ID=issued-client-id
+CLOVA_VOICE_CLIENT_SECRET=issued-client-secret
+CLOVA_VOICE_ASSISTANT_SPEAKER=nara
+CLOVA_VOICE_USER_MALE_SPEAKER=nminsang
+CLOVA_VOICE_USER_FEMALE_SPEAKER=nminseo
+```
+
 Default seeded account settings:
 
 ```env
@@ -763,6 +774,13 @@ Settings are loaded from environment variables and `.env`.
 - `WS_FRAME_MAX_HEIGHT`
 - `DRIVING_MOVING_SPEED_THRESHOLD_KPH`
 - `DRIVING_LOCATION_MAX_ACCURACY_METERS`
+- `CLOVA_VOICE_CLIENT_ID`
+- `CLOVA_VOICE_CLIENT_SECRET`
+- `CLOVA_VOICE_TTS_URL`
+- `CLOVA_VOICE_REQUEST_TIMEOUT_SECONDS`
+- `CLOVA_VOICE_ASSISTANT_SPEAKER`
+- `CLOVA_VOICE_USER_MALE_SPEAKER`
+- `CLOVA_VOICE_USER_FEMALE_SPEAKER`
 - `GEMINI_API_KEY`
 - `GEMINI_MODEL`
 - `EMAIL_PROVIDER`

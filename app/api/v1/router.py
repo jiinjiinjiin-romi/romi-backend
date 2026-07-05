@@ -9,6 +9,7 @@ from app.api.v1.endpoints import (
     reports,
     saved_places,
     search_histories,
+    voice,
 )
 
 router = APIRouter()
@@ -21,3 +22,4 @@ router.include_router(profiles.router)
 router.include_router(reports.router)
 router.include_router(saved_places.router)
 router.include_router(search_histories.router)
+router.include_router(voice.router)

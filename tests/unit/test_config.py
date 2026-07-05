@@ -88,6 +88,21 @@ def test_settings_exposes_default_tmap_proxy_settings(monkeypatch: pytest.Monkey
     assert settings.tmap_proxy_cache_ttl_ms == 30_000
 
 
+def test_settings_exposes_default_clova_voice_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("CLOVA_VOICE_CLIENT_ID", raising=False)
+    monkeypatch.delenv("CLOVA_VOICE_CLIENT_SECRET", raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.clova_voice_client_id == ""
+    assert settings.clova_voice_client_secret == ""
+    assert settings.clova_voice_tts_url == "https://naveropenapi.apigw.ntruss.com/tts-premium/v1/tts"
+    assert settings.clova_voice_request_timeout_seconds == 10.0
+    assert settings.clova_voice_assistant_speaker == "nara"
+    assert settings.clova_voice_user_male_speaker == "nminsang"
+    assert settings.clova_voice_user_female_speaker == "nminseo"
+
+
 def test_settings_rejects_non_positive_websocket_runtime_settings() -> None:
     with pytest.raises(ValidationError):
         Settings(ws_recommended_frame_fps=0)
@@ -108,6 +123,14 @@ def test_settings_rejects_invalid_tmap_proxy_settings() -> None:
 
     with pytest.raises(ValidationError):
         Settings(tmap_proxy_cache_ttl_ms=-1, _env_file=None)
+
+
+def test_settings_rejects_invalid_clova_voice_settings() -> None:
+    with pytest.raises(ValidationError):
+        Settings(clova_voice_request_timeout_seconds=0, _env_file=None)
+
+    with pytest.raises(ValidationError):
+        Settings(clova_voice_assistant_speaker="", _env_file=None)
 
 
 def test_settings_normalizes_and_validates_driver_monitoring_adapter() -> None:

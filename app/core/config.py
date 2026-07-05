@@ -76,6 +76,13 @@ class Settings(BaseSettings):
     tmap_app_key: str = Field(default="", repr=False)
     tmap_request_timeout_seconds: float = 10.0
     tmap_proxy_cache_ttl_ms: int = 30_000
+    clova_voice_client_id: str = Field(default="", repr=False)
+    clova_voice_client_secret: str = Field(default="", repr=False)
+    clova_voice_tts_url: str = "https://naveropenapi.apigw.ntruss.com/tts-premium/v1/tts"
+    clova_voice_request_timeout_seconds: float = 10.0
+    clova_voice_assistant_speaker: str = "nara"
+    clova_voice_user_male_speaker: str = "nminsang"
+    clova_voice_user_female_speaker: str = "nminseo"
     model_path: str = "/app/artifacts/models/best_vit.pth"
     model_version: str = "vit-dms-1.0.0"
     driver_monitoring_adapter: Literal["MOCK", "REAL"] = "MOCK"
@@ -194,6 +201,25 @@ class Settings(BaseSettings):
         if value < 0:
             raise ValueError("TMAP proxy cache TTL must be non-negative.")
         return value
+
+    @field_validator("clova_voice_request_timeout_seconds")
+    @classmethod
+    def validate_positive_clova_voice_timeout(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("CLOVA Voice request timeout must be positive.")
+        return value
+
+    @field_validator(
+        "clova_voice_assistant_speaker",
+        "clova_voice_user_male_speaker",
+        "clova_voice_user_female_speaker",
+    )
+    @classmethod
+    def normalize_clova_voice_speaker(cls, value: object) -> str:
+        speaker = str(value).strip()
+        if not speaker:
+            raise ValueError("CLOVA Voice speaker must not be empty.")
+        return speaker
 
     @field_validator("driving_moving_speed_threshold_kph")
     @classmethod
