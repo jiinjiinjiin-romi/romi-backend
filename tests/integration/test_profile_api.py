@@ -63,7 +63,13 @@ async def test_bootstrap_uses_seeded_current_account(client) -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert set(payload) == {"account", "profiles", "selectedProfileId", "profileLimit", "capabilities"}
+    assert set(payload) == {
+        "account",
+        "profiles",
+        "selectedProfileId",
+        "profileLimit",
+        "capabilities",
+    }
     assert payload["account"]["displayName"] == "안정현"
     assert payload["account"]["email"] == "admin@example.com"
     assert payload["profileLimit"] == 5
@@ -91,7 +97,7 @@ async def test_profile_api_crud_select_and_validation(app, client) -> None:
         profile_id = created["id"]
         assert "accountId" not in created
         assert created["displayName"] == "Codex API"
-        assert created["behaviorWarningSensitivity"]["DROWSINESS"] == "HIGH"
+        assert created["behaviorWarningSensitivity"]["DROWSINESS"] == 9
         assert created["ttsSpeed"] == 1.0
 
         list_response = await client.get("/api/v1/profiles")
@@ -119,7 +125,7 @@ async def test_profile_api_crud_select_and_validation(app, client) -> None:
                 "reportEmail": None,
                 "behaviorWarningSensitivity": {
                     **DEFAULT_BEHAVIOR_WARNING_SENSITIVITY,
-                    "FOOD_OR_DRINK": "LOW",
+                    "FOOD_OR_DRINK": 4,
                 },
                 "ttsSpeed": 0.9,
                 "guidanceVolume": 80,
@@ -129,7 +135,7 @@ async def test_profile_api_crud_select_and_validation(app, client) -> None:
         updated = update_response.json()
         assert updated["agentCallName"] == "Codex Updated"
         assert updated["reportEmail"] is None
-        assert updated["behaviorWarningSensitivity"]["FOOD_OR_DRINK"] == "LOW"
+        assert updated["behaviorWarningSensitivity"]["FOOD_OR_DRINK"] == 4
 
         select_response = await client.post(f"/api/v1/profiles/{profile_id}/select")
         assert select_response.status_code == 200

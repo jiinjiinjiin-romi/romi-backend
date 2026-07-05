@@ -18,13 +18,18 @@ EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 INVALID_PROFILE_SETTING_MESSAGE = "프로필 설정값이 올바르지 않습니다."
 DEFAULT_BEHAVIOR_WARNING_SENSITIVITY = {
-    BehaviorType.DROWSINESS.value: WarningSensitivity.HIGH.value,
-    BehaviorType.PHONE_USE.value: WarningSensitivity.HIGH.value,
-    BehaviorType.FOOD_OR_DRINK.value: WarningSensitivity.MEDIUM.value,
-    BehaviorType.GAZE_AWAY.value: WarningSensitivity.HIGH.value,
-    BehaviorType.SECONDARY_TASK.value: WarningSensitivity.MEDIUM.value,
-    BehaviorType.REACHING_BEHIND.value: WarningSensitivity.MEDIUM.value,
-    BehaviorType.SMOKING.value: WarningSensitivity.MEDIUM.value,
+    BehaviorType.DROWSINESS.value: 9,
+    BehaviorType.PHONE_USE.value: 9,
+    BehaviorType.FOOD_OR_DRINK.value: 7,
+    BehaviorType.GAZE_AWAY.value: 9,
+    BehaviorType.SECONDARY_TASK.value: 7,
+    BehaviorType.REACHING_BEHIND.value: 7,
+    BehaviorType.SMOKING.value: 7,
+}
+LEGACY_BEHAVIOR_WARNING_SENSITIVITY_MAP = {
+    WarningSensitivity.LOW.value: 4,
+    WarningSensitivity.MEDIUM.value: 7,
+    WarningSensitivity.HIGH.value: 9,
 }
 
 
@@ -82,7 +87,7 @@ def _validate_enum_value(
     return value
 
 
-def _validate_behavior_warning_sensitivity(value: object) -> dict[str, str]:
+def _validate_behavior_warning_sensitivity(value: object) -> dict[str, int]:
     if not isinstance(value, dict):
         _raise_validation_error(
             ErrorCode.INVALID_WARNING_SENSITIVITY,
@@ -96,11 +101,20 @@ def _validate_behavior_warning_sensitivity(value: object) -> dict[str, str]:
             "지원하지 않는 경고 민감도입니다.",
         )
 
-    allowed_values = {item.value for item in WarningSensitivity}
-    normalized: dict[str, str] = {}
+    normalized: dict[str, int] = {}
     for behavior_type in BehaviorType:
         sensitivity = value[behavior_type.value]
-        if not isinstance(sensitivity, str) or sensitivity not in allowed_values:
+        if isinstance(sensitivity, str) and sensitivity in LEGACY_BEHAVIOR_WARNING_SENSITIVITY_MAP:
+            normalized[behavior_type.value] = LEGACY_BEHAVIOR_WARNING_SENSITIVITY_MAP[sensitivity]
+            continue
+
+        invalid_numeric_sensitivity = (
+            isinstance(sensitivity, bool)
+            or not isinstance(sensitivity, int)
+            or sensitivity < 3
+            or sensitivity > 10
+        )
+        if invalid_numeric_sensitivity:
             _raise_validation_error(
                 ErrorCode.INVALID_WARNING_SENSITIVITY,
                 "지원하지 않는 경고 민감도입니다.",
@@ -170,7 +184,7 @@ class ProfileCreateRequest(ApiRequestModel):
     report_email: str | None = None
     agent_personality: str
     warning_sensitivity: str = WarningSensitivity.MEDIUM.value
-    behavior_warning_sensitivity: dict[str, str] = Field(
+    behavior_warning_sensitivity: dict[str, int] = Field(
         default_factory=lambda: DEFAULT_BEHAVIOR_WARNING_SENSITIVITY.copy()
     )
     tts_voice_id: str | None = None
@@ -225,7 +239,7 @@ class ProfileCreateRequest(ApiRequestModel):
 
     @field_validator("behavior_warning_sensitivity", mode="before")
     @classmethod
-    def validate_behavior_warning_sensitivity(cls, value: object) -> dict[str, str]:
+    def validate_behavior_warning_sensitivity(cls, value: object) -> dict[str, int]:
         return _validate_behavior_warning_sensitivity(value)
 
     @field_validator("tts_voice_id", mode="before")
@@ -274,7 +288,7 @@ class ProfileUpdateRequest(ApiRequestModel):
     report_email: str | None = None
     agent_personality: str | None = None
     warning_sensitivity: str | None = None
-    behavior_warning_sensitivity: dict[str, str] | None = None
+    behavior_warning_sensitivity: dict[str, int] | None = None
     tts_voice_id: str | None = None
     tts_speed: float | None = None
     guidance_volume: int | None = None
@@ -335,7 +349,7 @@ class ProfileUpdateRequest(ApiRequestModel):
 
     @field_validator("behavior_warning_sensitivity", mode="before")
     @classmethod
-    def validate_behavior_warning_sensitivity(cls, value: object) -> dict[str, str] | None:
+    def validate_behavior_warning_sensitivity(cls, value: object) -> dict[str, int] | None:
         if value is None:
             return None
         return _validate_behavior_warning_sensitivity(value)
@@ -398,7 +412,7 @@ class ProfileResponse(ApiBaseModel):
     report_email: str | None
     agent_personality: str
     warning_sensitivity: str
-    behavior_warning_sensitivity: dict[str, str]
+    behavior_warning_sensitivity: dict[str, int]
     tts_voice_id: str | None
     tts_speed: float
     guidance_volume: int
@@ -406,6 +420,11 @@ class ProfileResponse(ApiBaseModel):
     last_used_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("behavior_warning_sensitivity", mode="before")
+    @classmethod
+    def validate_behavior_warning_sensitivity(cls, value: object) -> dict[str, int]:
+        return _validate_behavior_warning_sensitivity(value)
 
     @field_serializer("last_used_at", "created_at", "updated_at")
     def serialize_datetime(self, value: datetime | None) -> str | None:
@@ -419,8 +438,13 @@ class ProfileSummaryResponse(ApiBaseModel):
     profile_image_url: str | None
     agent_personality: str
     warning_sensitivity: str
-    behavior_warning_sensitivity: dict[str, str]
+    behavior_warning_sensitivity: dict[str, int]
     last_used_at: datetime | None
+
+    @field_validator("behavior_warning_sensitivity", mode="before")
+    @classmethod
+    def validate_behavior_warning_sensitivity(cls, value: object) -> dict[str, int]:
+        return _validate_behavior_warning_sensitivity(value)
 
     @field_serializer("last_used_at")
     def serialize_last_used_at(self, value: datetime | None) -> str | None:

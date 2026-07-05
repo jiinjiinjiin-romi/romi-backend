@@ -20,15 +20,15 @@ if TYPE_CHECKING:
     from app.models.search_history import SearchHistory
 
 
-def default_behavior_warning_sensitivity() -> dict[str, str]:
+def default_behavior_warning_sensitivity() -> dict[str, int]:
     return {
-        BehaviorType.DROWSINESS.value: WarningSensitivity.HIGH.value,
-        BehaviorType.PHONE_USE.value: WarningSensitivity.HIGH.value,
-        BehaviorType.FOOD_OR_DRINK.value: WarningSensitivity.MEDIUM.value,
-        BehaviorType.GAZE_AWAY.value: WarningSensitivity.HIGH.value,
-        BehaviorType.SECONDARY_TASK.value: WarningSensitivity.MEDIUM.value,
-        BehaviorType.REACHING_BEHIND.value: WarningSensitivity.MEDIUM.value,
-        BehaviorType.SMOKING.value: WarningSensitivity.MEDIUM.value,
+        BehaviorType.DROWSINESS.value: 9,
+        BehaviorType.PHONE_USE.value: 9,
+        BehaviorType.FOOD_OR_DRINK.value: 7,
+        BehaviorType.GAZE_AWAY.value: 9,
+        BehaviorType.SECONDARY_TASK.value: 7,
+        BehaviorType.REACHING_BEHIND.value: 7,
+        BehaviorType.SMOKING.value: 7,
     }
 
 
@@ -104,7 +104,7 @@ class DriverProfile(Base):
         default=WarningSensitivity.MEDIUM.value,
         server_default=text("'MEDIUM'"),
     )
-    behavior_warning_sensitivity: Mapped[dict[str, str]] = mapped_column(
+    behavior_warning_sensitivity: Mapped[dict[str, int]] = mapped_column(
         mysql.JSON,
         nullable=False,
         default=default_behavior_warning_sensitivity,

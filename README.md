@@ -19,10 +19,10 @@ Do not use `Base.metadata.create_all()` for application schema management.
   - driver profiles, saved places, and search histories
   - driving sessions, location samples, safety behavior events, interventions, and driver responses
   - agent conversations, agent messages, tool executions, and report exports
-- Default admin account seed command
+- Default admin account seed command with display name and email settings
 - `GET /api/v1/health`
 - MVP `current_account` dependency backed by `DEFAULT_ADMIN_ACCOUNT_ID`
-- `GET /api/v1/bootstrap`
+- `GET /api/v1/bootstrap` with account summary, profiles, selected profile, limits, and capabilities
 - Driver Profile REST API:
   - `GET /api/v1/profiles`
   - `POST /api/v1/profiles`
@@ -38,6 +38,7 @@ Do not use `Base.metadata.create_all()` for application schema management.
   - `DELETE /api/v1/saved-places/{placeId}`
 - Search History REST API:
   - `GET /api/v1/profiles/{profileId}/search-histories`
+  - `POST /api/v1/profiles/{profileId}/search-histories`
   - `DELETE /api/v1/profiles/{profileId}/search-histories`
 - Driving Session REST API:
   - `POST /api/v1/driving-sessions`
@@ -80,7 +81,6 @@ Do not use `Base.metadata.create_all()` for application schema management.
 
 - Login, JWT, passwords, roles, or authority management
 - Account CRUD API
-- Search History creation REST API
 - Agent messages, Gemini handling, ToolExecution handling, and Report Export APIs
 - Real ViT inference and Agent utterance handling
 - JPEG decode/preprocessing, risk policy, and interventions
@@ -119,6 +119,14 @@ TMAP proxy settings:
 TMAP_APP_KEY=issued-app-key
 TMAP_REQUEST_TIMEOUT_SECONDS=10
 TMAP_PROXY_CACHE_TTL_MS=30000
+```
+
+Default seeded account settings:
+
+```env
+DEFAULT_ADMIN_ACCOUNT_ID=00000000-0000-0000-0000-000000000001
+DEFAULT_ADMIN_DISPLAY_NAME=안정현
+DEFAULT_ADMIN_EMAIL=admin@example.com
 ```
 
 ## Docker Compose
@@ -170,16 +178,25 @@ If migration fails, seed and Uvicorn do not run. If seed fails, Uvicorn does not
 ## Profile API Example
 
 ```powershell
+$behaviorWarningSensitivity = @{
+    DROWSINESS = 9
+    PHONE_USE = 9
+    FOOD_OR_DRINK = 7
+    GAZE_AWAY = 9
+    SECONDARY_TASK = 7
+    REACHING_BEHIND = 7
+    SMOKING = 7
+}
+
 $body = @{
     displayName = "Codex Smoke"
     agentCallName = "Codex"
     reportEmail = "codex-smoke@example.com"
     agentPersonality = "FRIENDLY"
-    warningSensitivity = "MEDIUM"
+    behaviorWarningSensitivity = $behaviorWarningSensitivity
     ttsVoiceId = $null
     ttsSpeed = 1.0
     guidanceVolume = 70
-    theme = "SYSTEM"
 } | ConvertTo-Json
 
 $profile = Invoke-RestMethod `
@@ -191,6 +208,33 @@ $profile = Invoke-RestMethod `
 Invoke-RestMethod `
     -Method Post `
     -Uri "http://localhost:8000/api/v1/profiles/$($profile.id)/select"
+```
+
+`behaviorWarningSensitivity` values are integers from 3 to 10. Values `4` and
+below are treated as low-sensitivity settings by the navigation UI.
+`warningSensitivity` and `theme` remain accepted and returned for compatibility,
+but the navigation frontend no longer exposes global sensitivity or theme
+controls.
+
+## Bootstrap API Example
+
+```json
+{
+  "account": {
+    "id": "00000000-0000-0000-0000-000000000001",
+    "displayName": "안정현",
+    "email": "admin@example.com"
+  },
+  "profiles": [],
+  "selectedProfileId": null,
+  "profileLimit": 5,
+  "capabilities": {
+    "vitModelAvailable": true,
+    "geminiAvailable": false,
+    "emailAvailable": false,
+    "demoMode": false
+  }
+}
 ```
 
 ## Saved Place API Example
@@ -234,6 +278,22 @@ Invoke-RestMethod `
 ## Search History API Example
 
 ```powershell
+$historyBody = @{
+    query = "세종대학교"
+    provider = "TMAP"
+    providerPlaceId = "search-history-001"
+    placeName = "세종대학교"
+    address = "서울 광진구 능동로 209"
+    latitude = 37.5501
+    longitude = 127.0734
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+    -Method Post `
+    -Uri "http://localhost:8000/api/v1/profiles/$($profile.id)/search-histories" `
+    -ContentType "application/json" `
+    -Body $historyBody
+
 Invoke-RestMethod `
     -Method Get `
     -Uri "http://localhost:8000/api/v1/profiles/$($profile.id)/search-histories?page=1&size=20"
@@ -243,8 +303,7 @@ Invoke-RestMethod `
     -Uri "http://localhost:8000/api/v1/profiles/$($profile.id)/search-histories"
 ```
 
-Search history creation REST API is not defined yet. The latest-50 retention
-policy is applied by the future writer that creates search history rows.
+Search history creation is profile-scoped and keeps the latest 50 rows.
 
 ## Driving Session API Example
 

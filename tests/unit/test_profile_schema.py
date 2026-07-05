@@ -55,7 +55,7 @@ def test_profile_response_serializes_camel_case_without_account_id() -> None:
 
     assert "accountId" not in payload
     assert payload["displayName"] == "Codex Driver"
-    assert payload["behaviorWarningSensitivity"]["DROWSINESS"] == "HIGH"
+    assert payload["behaviorWarningSensitivity"]["DROWSINESS"] == 9
     assert payload["ttsSpeed"] == 1.2
     assert payload["lastUsedAt"] == "2026-06-30T01:02:03.123456Z"
     assert payload["createdAt"] == "2026-06-29T01:02:03.123456Z"
@@ -82,7 +82,7 @@ def test_profile_create_request_trims_supported_text_fields() -> None:
         ("warningSensitivity", "EXTREME", "INVALID_WARNING_SENSITIVITY"),
         (
             "behaviorWarningSensitivity",
-            {**DEFAULT_BEHAVIOR_WARNING_SENSITIVITY, "PHONE_USE": "EXTREME"},
+            {**DEFAULT_BEHAVIOR_WARNING_SENSITIVITY, "PHONE_USE": 11},
             "INVALID_WARNING_SENSITIVITY",
         ),
         (
@@ -114,6 +114,27 @@ def test_profile_create_rejects_unknown_fields() -> None:
         ProfileCreateRequest(**make_create_payload(accountId="not-allowed"))
 
     assert exc_info.value.errors()[0]["type"] == "extra_forbidden"
+
+
+def test_profile_create_accepts_legacy_behavior_warning_sensitivity_values() -> None:
+    request = ProfileCreateRequest(
+        **make_create_payload(
+            behaviorWarningSensitivity={
+                "DROWSINESS": "HIGH",
+                "PHONE_USE": "HIGH",
+                "FOOD_OR_DRINK": "MEDIUM",
+                "GAZE_AWAY": "HIGH",
+                "SECONDARY_TASK": "MEDIUM",
+                "REACHING_BEHIND": "MEDIUM",
+                "SMOKING": "LOW",
+            },
+        )
+    )
+
+    assert request.behavior_warning_sensitivity == {
+        **DEFAULT_BEHAVIOR_WARNING_SENSITIVITY,
+        "SMOKING": 4,
+    }
 
 
 def test_profile_update_distinguishes_omitted_and_explicit_null_fields() -> None:

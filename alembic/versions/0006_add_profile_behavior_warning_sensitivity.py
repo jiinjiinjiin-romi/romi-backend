@@ -34,13 +34,13 @@ def upgrade() -> None:
             """
             UPDATE driver_profiles
             SET behavior_warning_sensitivity = JSON_OBJECT(
-                'DROWSINESS', 'HIGH',
-                'PHONE_USE', 'HIGH',
-                'FOOD_OR_DRINK', 'MEDIUM',
-                'GAZE_AWAY', 'HIGH',
-                'SECONDARY_TASK', 'MEDIUM',
-                'REACHING_BEHIND', 'MEDIUM',
-                'SMOKING', 'MEDIUM'
+                'DROWSINESS', 9,
+                'PHONE_USE', 9,
+                'FOOD_OR_DRINK', 7,
+                'GAZE_AWAY', 9,
+                'SECONDARY_TASK', 7,
+                'REACHING_BEHIND', 7,
+                'SMOKING', 7
             )
             WHERE behavior_warning_sensitivity IS NULL
             """
