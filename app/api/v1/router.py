@@ -5,6 +5,7 @@ from app.api.v1.endpoints import (
     bootstrap,
     driving_sessions,
     health,
+    music,
     profiles,
     reports,
     saved_places,
@@ -17,6 +18,7 @@ router = APIRouter()
 router.include_router(agent.router)
 router.include_router(bootstrap.router)
 router.include_router(health.router)
+router.include_router(music.router)
 router.include_router(driving_sessions.router)
 router.include_router(profiles.router)
 router.include_router(reports.router)
