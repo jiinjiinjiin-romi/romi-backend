@@ -139,6 +139,15 @@ def test_profile_create_accepts_legacy_behavior_warning_sensitivity_values() -> 
     }
 
 
+def test_profile_requests_normalize_agent_personality_case() -> None:
+    create_request = ProfileCreateRequest(**make_create_payload(agentPersonality="formal"))
+    update_request = ProfileUpdateRequest(agentPersonality="witty")
+
+    assert create_request.agent_personality == "FORMAL"
+    assert update_request.agent_personality == "WITTY"
+    assert update_request.to_update_data()["agent_personality"] == "WITTY"
+
+
 def test_profile_update_distinguishes_omitted_and_explicit_null_fields() -> None:
     request = ProfileUpdateRequest(reportEmail=None, ttsVoiceId="")
 

@@ -970,7 +970,7 @@ def test_websocket_frame_binary_timeout_is_recoverable(app) -> None:
     with TestClient(app) as client:
         data = client.portal.call(create_test_data)
         override_dependencies(app, data.current_account)
-        override_settings(app, Settings(ws_frame_binary_timeout_ms=1))
+        override_settings(app, Settings(ws_frame_binary_timeout_ms=20))
         base_time = datetime(2026, 6, 28, 3, 10, 10, tzinfo=UTC)
 
         try:

@@ -87,6 +87,22 @@ def _validate_enum_value(
     return value
 
 
+def _validate_agent_personality(value: object) -> str:
+    if not isinstance(value, str):
+        _raise_validation_error(
+            ErrorCode.INVALID_AGENT_PERSONALITY,
+            "지원하지 않는 안내 음성 스타일입니다.",
+        )
+
+    normalized = value.strip().upper()
+    if normalized not in {item.value for item in AgentPersonality}:
+        _raise_validation_error(
+            ErrorCode.INVALID_AGENT_PERSONALITY,
+            "지원하지 않는 안내 음성 스타일입니다.",
+        )
+    return normalized
+
+
 def _validate_behavior_warning_sensitivity(value: object) -> dict[str, int]:
     if not isinstance(value, dict):
         _raise_validation_error(
@@ -220,12 +236,7 @@ class ProfileCreateRequest(ApiRequestModel):
     @field_validator("agent_personality", mode="before")
     @classmethod
     def validate_agent_personality(cls, value: object) -> str:
-        return _validate_enum_value(
-            value,
-            allowed_values={item.value for item in AgentPersonality},
-            error_code=ErrorCode.INVALID_AGENT_PERSONALITY,
-            message="지원하지 않는 안내 음성 스타일입니다.",
-        )
+        return _validate_agent_personality(value)
 
     @field_validator("warning_sensitivity", mode="before")
     @classmethod
@@ -328,12 +339,7 @@ class ProfileUpdateRequest(ApiRequestModel):
     def validate_agent_personality(cls, value: object) -> str | None:
         if value is None:
             return None
-        return _validate_enum_value(
-            value,
-            allowed_values={item.value for item in AgentPersonality},
-            error_code=ErrorCode.INVALID_AGENT_PERSONALITY,
-            message="지원하지 않는 안내 음성 스타일입니다.",
-        )
+        return _validate_agent_personality(value)
 
     @field_validator("warning_sensitivity", mode="before")
     @classmethod
