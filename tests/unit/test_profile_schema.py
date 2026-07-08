@@ -107,6 +107,8 @@ def test_profile_create_validation_errors_are_structured(
         ProfileCreateRequest(**make_create_payload(**{field: value}))
 
     assert exc_info.value.errors()[0]["type"] == error_type
+    if field == "agentPersonality":
+        assert exc_info.value.errors()[0]["msg"] == "지원하지 않는 안내 음성 스타일입니다."
 
 
 def test_profile_create_rejects_unknown_fields() -> None:

@@ -66,6 +66,26 @@ def test_resolve_speaker_uses_profile_specific_user_voice() -> None:
     assert jiwoo_speaker != assistant_speaker
 
 
+@pytest.mark.asyncio
+async def test_synthesize_forwards_tts_tone_options() -> None:
+    captured_body = ""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal captured_body
+        captured_body = request.content.decode()
+        return httpx.Response(200, content=b"audio")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await VoiceService(settings=make_settings(), client=client).synthesize(
+            VoiceTtsRequest(text="크게 또박또박 안내할게요.", volume=3, speed=3, pitch=1)
+        )
+
+    form = parse_qs(captured_body)
+    assert form["volume"] == ["3"]
+    assert form["speed"] == ["3"]
+    assert form["pitch"] == ["1"]
+
+
 def test_request_accepts_documented_speed_range() -> None:
     assert VoiceTtsRequest(text="천천히 말해줘", speed=10).speed == 10
 

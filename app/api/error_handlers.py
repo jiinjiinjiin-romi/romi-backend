@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 PROFILE_VALIDATION_MESSAGES: dict[str, str] = {
     ErrorCode.INVALID_DISPLAY_NAME.value: "프로필 이름을 입력해 주세요.",
-    ErrorCode.INVALID_AGENT_PERSONALITY.value: "지원하지 않는 Agent 성격입니다.",
+    ErrorCode.INVALID_AGENT_PERSONALITY.value: "지원하지 않는 안내 음성 스타일입니다.",
     ErrorCode.INVALID_WARNING_SENSITIVITY.value: "지원하지 않는 경고 민감도입니다.",
     ErrorCode.INVALID_TTS_SPEED.value: "TTS 속도는 0.5 이상 2.0 이하로 설정해야 합니다.",
     ErrorCode.INVALID_EMAIL_FORMAT.value: "올바른 이메일 주소를 입력해 주세요.",

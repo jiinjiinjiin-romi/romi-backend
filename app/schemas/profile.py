@@ -224,7 +224,7 @@ class ProfileCreateRequest(ApiRequestModel):
             value,
             allowed_values={item.value for item in AgentPersonality},
             error_code=ErrorCode.INVALID_AGENT_PERSONALITY,
-            message="지원하지 않는 Agent 성격입니다.",
+            message="지원하지 않는 안내 음성 스타일입니다.",
         )
 
     @field_validator("warning_sensitivity", mode="before")
@@ -332,7 +332,7 @@ class ProfileUpdateRequest(ApiRequestModel):
             value,
             allowed_values={item.value for item in AgentPersonality},
             error_code=ErrorCode.INVALID_AGENT_PERSONALITY,
-            message="지원하지 않는 Agent 성격입니다.",
+            message="지원하지 않는 안내 음성 스타일입니다.",
         )
 
     @field_validator("warning_sensitivity", mode="before")
