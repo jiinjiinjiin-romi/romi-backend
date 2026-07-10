@@ -11,6 +11,7 @@ from pydantic_core import PydanticCustomError
 from app.core.enums import AgentPersonality, BehaviorType, Theme, WarningSensitivity
 from app.core.error_codes import ErrorCode
 from app.core.time import format_utc_datetime
+from app.core.voice import PROFILE_ASSISTANT_SPEAKER_IDS
 from app.schemas.base import ApiBaseModel, ApiRequestModel
 
 PROFILE_LIMIT = 5
@@ -184,6 +185,13 @@ def _validate_tts_speed(value: object) -> float:
     return speed
 
 
+def _validate_tts_voice_id(value: object) -> str | None:
+    voice_id = _validate_optional_text(value, max_length=100)
+    if voice_id is not None and voice_id not in PROFILE_ASSISTANT_SPEAKER_IDS:
+        _raise_validation_error(ErrorCode.INVALID_PROFILE_SETTING, INVALID_PROFILE_SETTING_MESSAGE)
+    return voice_id
+
+
 def _validate_guidance_volume(value: object) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         _raise_validation_error(ErrorCode.INVALID_PROFILE_SETTING, INVALID_PROFILE_SETTING_MESSAGE)
@@ -256,7 +264,7 @@ class ProfileCreateRequest(ApiRequestModel):
     @field_validator("tts_voice_id", mode="before")
     @classmethod
     def validate_tts_voice_id(cls, value: object) -> str | None:
-        return _validate_optional_text(value, max_length=100)
+        return _validate_tts_voice_id(value)
 
     @field_validator("tts_speed", mode="before")
     @classmethod
@@ -363,7 +371,7 @@ class ProfileUpdateRequest(ApiRequestModel):
     @field_validator("tts_voice_id", mode="before")
     @classmethod
     def validate_tts_voice_id(cls, value: object) -> str | None:
-        return _validate_optional_text(value, max_length=100)
+        return _validate_tts_voice_id(value)
 
     @field_validator("tts_speed", mode="before")
     @classmethod
@@ -445,6 +453,7 @@ class ProfileSummaryResponse(ApiBaseModel):
     agent_personality: str
     warning_sensitivity: str
     behavior_warning_sensitivity: dict[str, int]
+    tts_voice_id: str | None
     last_used_at: datetime | None
 
     @field_validator("behavior_warning_sensitivity", mode="before")

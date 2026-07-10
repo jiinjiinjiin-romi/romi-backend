@@ -61,6 +61,8 @@ class VoiceService:
 
     def resolve_speaker(self, request: VoiceTtsRequest) -> str:
         if request.speaker_role == "assistant":
+            if request.speaker_id is not None:
+                return request.speaker_id
             return self._settings.clova_voice_assistant_speaker
 
         profile_name = (request.profile_name or "").casefold()

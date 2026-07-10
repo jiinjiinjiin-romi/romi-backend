@@ -127,6 +127,7 @@ async def test_profile_api_crud_select_and_validation(app, client) -> None:
                     **DEFAULT_BEHAVIOR_WARNING_SENSITIVITY,
                     "FOOD_OR_DRINK": 4,
                 },
+                "ttsVoiceId": "nes_c_hyeri",
                 "ttsSpeed": 0.9,
                 "guidanceVolume": 80,
             },
@@ -136,6 +137,7 @@ async def test_profile_api_crud_select_and_validation(app, client) -> None:
         assert updated["agentCallName"] == "Codex Updated"
         assert updated["reportEmail"] is None
         assert updated["behaviorWarningSensitivity"]["FOOD_OR_DRINK"] == 4
+        assert updated["ttsVoiceId"] == "nes_c_hyeri"
 
         select_response = await client.post(f"/api/v1/profiles/{profile_id}/select")
         assert select_response.status_code == 200
@@ -145,6 +147,7 @@ async def test_profile_api_crud_select_and_validation(app, client) -> None:
         selected_bootstrap_response = await client.get("/api/v1/bootstrap")
         assert selected_bootstrap_response.status_code == 200
         assert selected_bootstrap_response.json()["selectedProfileId"] == profile_id
+        assert selected_bootstrap_response.json()["profiles"][0]["ttsVoiceId"] == "nes_c_hyeri"
 
         for index in range(2, 6):
             response = await client.post(

@@ -43,6 +43,26 @@ async def test_synthesize_uses_assistant_female_speaker() -> None:
     assert speech.content_type == "audio/mpeg"
 
 
+def test_resolve_speaker_uses_selected_assistant_voice() -> None:
+    service = VoiceService(settings=make_settings())
+
+    speaker = service.resolve_speaker(
+        VoiceTtsRequest(text="안녕하세요.", speaker_role="assistant", speaker_id="nes_c_hyeri")
+    )
+
+    assert speaker == "nes_c_hyeri"
+
+
+def test_resolve_speaker_accepts_the_fixed_warning_voice() -> None:
+    service = VoiceService(settings=make_settings())
+
+    speaker = service.resolve_speaker(
+        VoiceTtsRequest(text="즉시 전방을 보세요.", speaker_role="assistant", speaker_id="dara_ang")
+    )
+
+    assert speaker == "dara_ang"
+
+
 def test_resolve_speaker_uses_profile_specific_user_voice() -> None:
     service = VoiceService(settings=make_settings())
 

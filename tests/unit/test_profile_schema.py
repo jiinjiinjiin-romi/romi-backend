@@ -62,11 +62,18 @@ def test_profile_response_serializes_camel_case_without_account_id() -> None:
 
 
 def test_profile_create_request_trims_supported_text_fields() -> None:
-    request = ProfileCreateRequest(**make_create_payload(ttsVoiceId=" voice-1 "))
+    request = ProfileCreateRequest(**make_create_payload(ttsVoiceId=" nes_c_hyeri "))
 
     assert request.display_name == "Codex Driver"
     assert request.agent_call_name == "Codex"
-    assert request.tts_voice_id == "voice-1"
+    assert request.tts_voice_id == "nes_c_hyeri"
+
+
+def test_profile_requests_reject_unsupported_tts_voice_id() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        ProfileUpdateRequest(ttsVoiceId="dara_ang")
+
+    assert exc_info.value.errors()[0]["type"] == "INVALID_PROFILE_SETTING"
 
 
 @pytest.mark.parametrize(
