@@ -103,6 +103,20 @@ def test_settings_exposes_default_clova_voice_settings(monkeypatch: pytest.Monke
     assert settings.clova_voice_user_female_speaker == "nminseo"
 
 
+def test_settings_exposes_and_validates_gemini_request_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("GEMINI_REQUEST_TIMEOUT_SECONDS", raising=False)
+
+    assert Settings(_env_file=None).gemini_request_timeout_seconds == 45.0
+
+    with pytest.raises(ValidationError):
+        Settings(gemini_request_timeout_seconds=0, _env_file=None)
+
+    with pytest.raises(ValidationError):
+        Settings(gemini_request_timeout_seconds=float("inf"), _env_file=None)
+
+
 def test_settings_rejects_non_positive_websocket_runtime_settings() -> None:
     with pytest.raises(ValidationError):
         Settings(ws_recommended_frame_fps=0)

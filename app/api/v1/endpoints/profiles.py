@@ -6,6 +6,7 @@ from app.api.dependencies import AppSettings, CurrentAccount, DbSession
 from app.api.error_handlers import ErrorResponse
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import AppException
+from app.schemas.behavior_sensitivity import DriveSummaryRequest
 from app.schemas.profile import (
     ProfileCreateRequest,
     ProfileListResponse,
@@ -104,6 +105,30 @@ async def update_profile(
     service: ProfileServiceDep,
 ) -> ProfileResponse:
     return await service.update_profile(current_account, parse_profile_id(profile_id), request)
+
+
+@router.post(
+    "/profiles/{profileId}/behavior-warning-sensitivity/drive-summary",
+    response_model=ProfileResponse,
+    responses={
+        409: {"model": ErrorResponse},
+        404: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+        502: {"model": ErrorResponse},
+        503: {"model": ErrorResponse},
+    },
+)
+async def update_behavior_warning_sensitivity_from_drive_summary(
+    profile_id: ProfilePath,
+    request: DriveSummaryRequest,
+    current_account: CurrentAccount,
+    service: ProfileServiceDep,
+) -> ProfileResponse:
+    return await service.update_behavior_warning_sensitivity_from_drive_summary(
+        current_account,
+        parse_profile_id(profile_id),
+        request,
+    )
 
 
 @router.delete(

@@ -62,7 +62,11 @@ class HealthService:
         return await self.driver_monitoring_adapter.is_ready()
 
     def is_gemini_configured(self) -> bool:
-        return bool(self.settings.gemini_api_key and self.settings.gemini_model)
+        return bool(
+            self.settings.gemini_api_key
+            and self.settings.gemini_model
+            and self.settings.gemini_behavior_sensitivity_prompt
+        )
 
     def is_email_configured(self) -> bool:
         return all(

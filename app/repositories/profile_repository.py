@@ -49,6 +49,22 @@ class ProfileRepository:
         )
         return result.scalar_one_or_none()
 
+    async def get_by_account_for_update_current(
+        self,
+        account_id: str,
+        profile_id: str,
+    ) -> DriverProfile | None:
+        result = await self.session.execute(
+            select(DriverProfile)
+            .where(
+                DriverProfile.id == profile_id,
+                DriverProfile.account_id == account_id,
+            )
+            .execution_options(populate_existing=True)
+            .with_for_update()
+        )
+        return result.scalar_one_or_none()
+
     async def count_by_account(self, account_id: str) -> int:
         count = await self.session.scalar(
             select(func.count())

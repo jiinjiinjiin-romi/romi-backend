@@ -1,4 +1,5 @@
 import json
+import math
 from collections.abc import Iterable
 from functools import lru_cache
 from typing import Literal, Self
@@ -103,6 +104,8 @@ class Settings(BaseSettings):
     driving_location_max_accuracy_meters: float = 100.0
     gemini_api_key: str = Field(default="", repr=False)
     gemini_model: str = ""
+    gemini_behavior_sensitivity_prompt: str = Field(default="", repr=False)
+    gemini_request_timeout_seconds: float = 45.0
     email_provider: str = ""
     email_host: str = ""
     email_port: str = ""
@@ -207,6 +210,13 @@ class Settings(BaseSettings):
     def validate_positive_clova_voice_timeout(cls, value: float) -> float:
         if value <= 0:
             raise ValueError("CLOVA Voice request timeout must be positive.")
+        return value
+
+    @field_validator("gemini_request_timeout_seconds")
+    @classmethod
+    def validate_positive_finite_gemini_timeout(cls, value: float) -> float:
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError("Gemini request timeout must be a positive finite number.")
         return value
 
     @field_validator(

@@ -8,12 +8,18 @@ from app.core.config import Settings
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import AppException
 from app.core.time import utc_now_for_mysql_datetime
+from app.integrations.gemini.behavior_sensitivity import (
+    GeminiBehaviorSensitivityClient,
+    GeminiNotConfiguredError,
+    GeminiProviderError,
+)
 from app.integrations.storage.local import LocalStorageAdapter, StorageDeleteError
 from app.models import Account, DriverProfile
 from app.repositories.account_repository import AccountRepository
 from app.repositories.driving_session_repository import DrivingSessionRepository
 from app.repositories.profile_repository import ProfileRepository
 from app.repositories.report_export_repository import ReportExportRepository
+from app.schemas.behavior_sensitivity import DriveSummaryRequest
 from app.schemas.profile import (
     PROFILE_LIMIT,
     ProfileCreateRequest,
@@ -32,6 +38,7 @@ class ProfileService:
         session: AsyncSession,
         settings: Settings,
         storage_adapter: LocalStorageAdapter | None = None,
+        gemini_client: GeminiBehaviorSensitivityClient | None = None,
     ) -> None:
         self.session = session
         self.settings = settings
@@ -40,6 +47,7 @@ class ProfileService:
         self.driving_session_repository = DrivingSessionRepository(session)
         self.report_export_repository = ReportExportRepository(session)
         self.storage_adapter = storage_adapter or LocalStorageAdapter(settings.report_storage_path)
+        self.gemini_client = gemini_client or GeminiBehaviorSensitivityClient(settings=settings)
 
     async def list_profiles(self, account: Account) -> ProfileListResponse:
         try:
@@ -159,6 +167,66 @@ class ProfileService:
             logger.exception("Profile update database error profile_id=%s", profile_id)
             raise AppException(
                 "프로필 설정값이 올바르지 않습니다.",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                error_code=ErrorCode.INTERNAL_SERVER_ERROR,
+            ) from exc
+
+    async def update_behavior_warning_sensitivity_from_drive_summary(
+        self,
+        account: Account,
+        profile_id: str,
+        request: DriveSummaryRequest,
+    ) -> ProfileResponse:
+        profile = await self.profile_repository.get_by_account(account.id, profile_id)
+        if profile is None:
+            raise self._profile_not_found()
+        original_sensitivity = dict(profile.behavior_warning_sensitivity)
+
+        telemetry_events = [
+            event.model_dump(mode="json", by_alias=True) for event in request.telemetry_events
+        ]
+        try:
+            sensitivity = await self.gemini_client.recommend(telemetry_events)
+        except GeminiNotConfiguredError as exc:
+            raise AppException(
+                "Gemini 민감도 분석 설정이 완료되지 않았습니다.",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                error_code=ErrorCode.GEMINI_BEHAVIOR_SENSITIVITY_NOT_CONFIGURED,
+            ) from exc
+        except GeminiProviderError as exc:
+            raise AppException(
+                "Gemini 민감도 분석에 실패했습니다.",
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                error_code=ErrorCode.GEMINI_BEHAVIOR_SENSITIVITY_FAILED,
+            ) from exc
+
+        try:
+            locked_profile = await self.profile_repository.get_by_account_for_update_current(
+                account.id,
+                profile_id,
+            )
+            if locked_profile is None:
+                raise self._profile_not_found()
+            if dict(locked_profile.behavior_warning_sensitivity) != original_sensitivity:
+                raise AppException(
+                    "민감도가 수동으로 변경되어 자동 반영을 중단했습니다.",
+                    status_code=status.HTTP_409_CONFLICT,
+                    error_code=ErrorCode.BEHAVIOR_SENSITIVITY_UPDATE_CONFLICT,
+                )
+
+            locked_profile.behavior_warning_sensitivity = sensitivity
+            await self.session.flush()
+            await self.session.refresh(locked_profile)
+            await self.session.commit()
+            return ProfileResponse.model_validate(locked_profile)
+        except AppException:
+            await self.session.rollback()
+            raise
+        except SQLAlchemyError as exc:
+            await self.session.rollback()
+            logger.exception("Behavior sensitivity update failed profile_id=%s", profile_id)
+            raise AppException(
+                "프로필 민감도를 저장하지 못했습니다.",
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 error_code=ErrorCode.INTERNAL_SERVER_ERROR,
             ) from exc

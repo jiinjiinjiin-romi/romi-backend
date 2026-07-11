@@ -35,6 +35,7 @@ def make_settings(**overrides: object) -> Settings:
         "model_path": "missing-model-file.pth",
         "gemini_api_key": "",
         "gemini_model": "",
+        "gemini_behavior_sensitivity_prompt": "",
         "email_provider": "",
         "email_host": "",
         "email_port": "",
@@ -65,6 +66,7 @@ async def test_health_is_up_when_all_services_are_up(tmp_path) -> None:
         model_path=str(model_file),
         gemini_api_key="key",
         gemini_model="gemini-test",
+        gemini_behavior_sensitivity_prompt="민감도를 JSON으로 반환하세요.",
         email_provider="smtp",
         email_host="smtp.example.com",
         email_port="587",
@@ -127,15 +129,22 @@ async def test_real_adapter_mode_reports_vit_unavailable_with_model_file(tmp_pat
     assert adapter.ready_calls == 1
 
 
-def test_gemini_requires_api_key_and_model() -> None:
+def test_gemini_requires_api_key_model_and_behavior_sensitivity_prompt() -> None:
     assert make_service(
-        make_settings(gemini_api_key="key", gemini_model="model")
+        make_settings(
+            gemini_api_key="key",
+            gemini_model="model",
+            gemini_behavior_sensitivity_prompt="민감도를 JSON으로 반환하세요.",
+        )
     ).is_gemini_configured()
     assert not make_service(
         make_settings(gemini_api_key="key", gemini_model="")
     ).is_gemini_configured()
     assert not make_service(
         make_settings(gemini_api_key="", gemini_model="model")
+    ).is_gemini_configured()
+    assert not make_service(
+        make_settings(gemini_api_key="key", gemini_model="model")
     ).is_gemini_configured()
 
 

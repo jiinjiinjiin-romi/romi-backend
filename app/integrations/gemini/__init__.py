@@ -1,1 +1,1 @@
-"""Gemini integration package placeholder."""
+"""Gemini integration clients."""
