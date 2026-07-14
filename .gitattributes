@@ -1,0 +1,1 @@
+artifacts/models/best_vit.pth filter=lfs diff=lfs merge=lfs -text

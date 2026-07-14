@@ -9,7 +9,10 @@ __pycache__/
 *.egg-info/
 .coverage
 htmlcov/
-artifacts/
+artifacts/*
+!artifacts/models/
+artifacts/models/*
+!artifacts/models/best_vit.pth
 storage/**/*.pdf
 storage/reports/*
 !storage/reports/.gitkeep
