@@ -70,7 +70,7 @@ def test_settings_exposes_default_websocket_runtime_settings() -> None:
     assert settings.ws_frame_recent_id_cache_size == 256
     assert settings.ws_frame_max_width == 1920
     assert settings.ws_frame_max_height == 1080
-    assert settings.driver_monitoring_adapter == "MOCK"
+    assert settings.driver_monitoring_adapter == "REAL"
     assert settings.mock_vit_inference_latency_ms == 0
     assert settings.driving_moving_speed_threshold_kph == 5.0
     assert settings.driving_location_max_accuracy_meters == 100.0

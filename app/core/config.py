@@ -85,9 +85,12 @@ class Settings(BaseSettings):
     clova_voice_user_male_speaker: str = "nminsang"
     clova_voice_user_female_speaker: str = "nminseo"
     model_path: str = "/app/artifacts/models/best_vit.pth"
+    model_device: Literal["cpu", "cuda", "mps"] = "cpu"
+    model_input_size: int = 224
     model_version: str = "vit-dms-1.0.0"
     driver_monitoring_adapter: Literal["MOCK", "REAL"] = "MOCK"
     mock_vit_inference_latency_ms: int = 0
+    torch_num_threads: int = 4
     policy_version: str = "risk-policy-1.0.0"
     ws_recommended_frame_fps: int = 5
     ws_location_interval_ms: int = 1000
@@ -170,6 +173,8 @@ class Settings(BaseSettings):
         "ws_frame_recent_id_cache_size",
         "ws_frame_max_width",
         "ws_frame_max_height",
+        "model_input_size",
+        "torch_num_threads",
     )
     @classmethod
     def validate_positive_frame_setting(cls, value: int) -> int:

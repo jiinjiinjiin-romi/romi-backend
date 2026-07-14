@@ -323,9 +323,11 @@ Search history creation is profile-scoped and keeps the latest 50 rows.
 ## Driving Session API Example
 
 `POST /api/v1/driving-sessions` checks driver-monitoring readiness. The default
-`DRIVER_MONITORING_ADAPTER=MOCK` mode is ready without a model artifact. In
-`DRIVER_MONITORING_ADAPTER=REAL`, the real adapter is not implemented yet and
-the start request returns `503 MODEL_NOT_AVAILABLE`.
+`DRIVER_MONITORING_ADAPTER=REAL` mode loads a ViT checkpoint from `MODEL_PATH`
+through torch/timm. For local Docker runs, place the checkpoint at
+`artifacts/models/best_vit.pth`, which is mounted to
+`/app/artifacts/models/best_vit.pth`. Use `DRIVER_MONITORING_ADAPTER=MOCK` only
+when you need backend behavior without a model artifact.
 
 The DriverMonitoringAdapter is an app-scoped resource. FastAPI lifespan startup
 creates one adapter and stores it in `app.state.driver_monitoring_adapter`.
@@ -761,9 +763,12 @@ Settings are loaded from environment variables and `.env`.
 - `DEFAULT_ADMIN_ACCOUNT_ID`
 - `DEFAULT_ADMIN_EMAIL`
 - `MODEL_PATH`
+- `MODEL_DEVICE`
+- `MODEL_INPUT_SIZE`
 - `MODEL_VERSION`
 - `DRIVER_MONITORING_ADAPTER`
 - `MOCK_VIT_INFERENCE_LATENCY_MS`
+- `TORCH_NUM_THREADS`
 - `POLICY_VERSION`
 - `WS_RECOMMENDED_FRAME_FPS`
 - `WS_LOCATION_INTERVAL_MS`

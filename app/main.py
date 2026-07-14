@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.api.error_handlers import register_error_handlers
+from app.api.model_lab import router as model_lab_router
 from app.api.navigation_tmap import router as navigation_tmap_router
 from app.api.v1.endpoints.websocket import router as websocket_router
 from app.api.v1.router import router as api_v1_router
@@ -113,6 +114,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(api_v1_router, prefix=settings.api_v1_prefix)
     app.include_router(websocket_router, prefix=settings.ws_v1_prefix)
+    app.include_router(model_lab_router)
     app.include_router(navigation_tmap_router)
 
     return app
