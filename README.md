@@ -325,8 +325,8 @@ Search history creation is profile-scoped and keeps the latest 50 rows.
 `POST /api/v1/driving-sessions` checks driver-monitoring readiness. The default
 `DRIVER_MONITORING_ADAPTER=REAL` mode loads a ViT checkpoint from `MODEL_PATH`
 through torch/timm. For local Docker runs, place the checkpoint at
-`artifacts/models/best_vit.pth`, which is mounted to
-`/app/artifacts/models/best_vit.pth`. Use `DRIVER_MONITORING_ADAPTER=MOCK` only
+`artifacts/models/best_ViT_kaggle_rgb2_4cls.pth`, which is mounted to
+`/app/artifacts/models/best_ViT_kaggle_rgb2_4cls.pth`. Use `DRIVER_MONITORING_ADAPTER=MOCK` only
 when you need backend behavior without a model artifact.
 
 The DriverMonitoringAdapter is an app-scoped resource. FastAPI lifespan startup
@@ -547,7 +547,7 @@ interventions, Gemini, AgentMessage, ToolExecution, and client-facing behavior
 transition messages remain future work.
 
 Local development defaults to MOCK mode, so ViT readiness is UP even when
-`/app/artifacts/models/best_vit.pth` is absent. REAL mode intentionally reports
+`/app/artifacts/models/best_ViT_kaggle_rgb2_4cls.pth` is absent. REAL mode intentionally reports
 ViT DOWN until the real adapter is implemented.
 
 ## Agent Conversation API Example

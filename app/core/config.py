@@ -84,7 +84,7 @@ class Settings(BaseSettings):
     clova_voice_assistant_speaker: str = "nara"
     clova_voice_user_male_speaker: str = "nminsang"
     clova_voice_user_female_speaker: str = "nminseo"
-    model_path: str = "/app/artifacts/models/best_vit.pth"
+    model_path: str = "/app/artifacts/models/best_ViT_kaggle_rgb2_4cls.pth"
     model_device: Literal["cpu", "cuda", "mps"] = "cpu"
     model_input_size: int = 224
     model_version: str = "vit-dms-1.0.0"

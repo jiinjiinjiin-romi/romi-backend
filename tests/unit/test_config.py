@@ -76,6 +76,14 @@ def test_settings_exposes_default_websocket_runtime_settings() -> None:
     assert settings.driving_location_max_accuracy_meters == 100.0
 
 
+def test_settings_defaults_to_rgb2_model_checkpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MODEL_PATH", raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.model_path == "/app/artifacts/models/best_ViT_kaggle_rgb2_4cls.pth"
+
+
 def test_settings_exposes_default_tmap_proxy_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TMAP_APP_KEY", raising=False)
     monkeypatch.delenv("TMAP_REQUEST_TIMEOUT_SECONDS", raising=False)
