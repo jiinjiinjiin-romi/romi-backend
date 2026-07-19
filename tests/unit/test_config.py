@@ -116,7 +116,7 @@ def test_settings_exposes_and_validates_gemini_request_timeout(
 ) -> None:
     monkeypatch.delenv("GEMINI_REQUEST_TIMEOUT_SECONDS", raising=False)
 
-    assert Settings(_env_file=None).gemini_request_timeout_seconds == 45.0
+    assert Settings(_env_file=None).gemini_request_timeout_seconds == 180.0
 
     with pytest.raises(ValidationError):
         Settings(gemini_request_timeout_seconds=0, _env_file=None)

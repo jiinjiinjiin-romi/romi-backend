@@ -108,7 +108,7 @@ class Settings(BaseSettings):
     gemini_api_key: str = Field(default="", repr=False)
     gemini_model: str = ""
     gemini_behavior_sensitivity_prompt: str = Field(default="", repr=False)
-    gemini_request_timeout_seconds: float = 45.0
+    gemini_request_timeout_seconds: float = 180.0
     email_provider: str = ""
     email_host: str = ""
     email_port: str = ""
