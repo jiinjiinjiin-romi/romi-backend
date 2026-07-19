@@ -17,7 +17,10 @@ from app.integrations.gemini.behavior_sensitivity import (
 )
 from app.schemas.behavior_sensitivity import DriveSummaryRequest
 from app.schemas.profile import DEFAULT_BEHAVIOR_WARNING_SENSITIVITY
-from app.services.profile_service import ProfileService
+from app.services.profile_service import (
+    ProfileService,
+    smooth_behavior_warning_sensitivity,
+)
 
 
 def make_settings(**overrides: object) -> Settings:
@@ -41,24 +44,15 @@ def telemetry_events() -> list[dict[str, object]]:
     ]
 
 
-def test_gemini_prompt_example_uses_a_syntactically_valid_json_object() -> None:
+def test_gemini_prompt_is_omitted_from_env_example() -> None:
     example_env = Path(__file__).parents[2] / ".env.example"
     prompt_line = next(
         line
         for line in example_env.read_text(encoding="utf-8").splitlines()
         if line.startswith("GEMINI_BEHAVIOR_SENSITIVITY_PROMPT=")
     )
-    prompt = json.loads(prompt_line.split("=", 1)[1])
-    example_json = prompt.rsplit(": ", 1)[1]
 
-    assert "숫자가 클수록 더 민감하고 더 이른 경고" in prompt
-    assert "clickCount와 level이 높을수록 해당 행동의 민감도 숫자를 높이세요" in prompt
-    assert "telemetryEvents에 근거가 없는 행동 유형" in prompt
-    assert json.loads(example_json) == {
-        "behaviorWarningSensitivity": {
-            behavior.value: 5 for behavior in BehaviorType
-        }
-    }
+    assert prompt_line == "GEMINI_BEHAVIOR_SENSITIVITY_PROMPT="
 
 
 @pytest.mark.asyncio
@@ -395,8 +389,8 @@ async def test_recommendation_logs_safe_http_status_diagnostics(
 
 
 @pytest.mark.asyncio
-async def test_drive_summary_recommendation_persists_the_valid_gemini_result() -> None:
-    updated_sensitivity = {
+async def test_drive_summary_recommendation_persists_the_smoothed_gemini_result() -> None:
+    recommended_sensitivity = {
         **DEFAULT_BEHAVIOR_WARNING_SENSITIVITY,
         "DROWSINESS": 6,
     }
@@ -446,7 +440,7 @@ async def test_drive_summary_recommendation_persists_the_valid_gemini_result() -
     class FakeGeminiClient:
         async def recommend(self, events: list[dict[str, object]]) -> dict[str, int]:
             assert events == telemetry_events()
-            return updated_sensitivity
+            return recommended_sensitivity
 
     service = ProfileService.__new__(ProfileService)
     service.session = FakeSession()
@@ -458,9 +452,57 @@ async def test_drive_summary_recommendation_persists_the_valid_gemini_result() -
         DriveSummaryRequest(telemetryEvents=telemetry_events()),
     )
 
-    assert profile.behavior_warning_sensitivity == updated_sensitivity
-    assert response.behavior_warning_sensitivity == updated_sensitivity
+    expected_sensitivity = {
+        **DEFAULT_BEHAVIOR_WARNING_SENSITIVITY,
+        "DROWSINESS": 8,
+    }
+    assert profile.behavior_warning_sensitivity == expected_sensitivity
+    assert response.behavior_warning_sensitivity == expected_sensitivity
     assert service.session.commits == 1
+
+
+def test_smooth_behavior_warning_sensitivity_moves_partway_toward_recommendation() -> None:
+    current = {
+        **DEFAULT_BEHAVIOR_WARNING_SENSITIVITY,
+        "DROWSINESS": 9,
+        "PHONE_USE": 6,
+    }
+    recommended = {
+        **DEFAULT_BEHAVIOR_WARNING_SENSITIVITY,
+        "DROWSINESS": 4,
+        "PHONE_USE": 8,
+    }
+
+    assert smooth_behavior_warning_sensitivity(
+        current=current,
+        recommended=recommended,
+    ) == {
+        **DEFAULT_BEHAVIOR_WARNING_SENSITIVITY,
+        "DROWSINESS": 7,
+        "PHONE_USE": 7,
+    }
+
+
+def test_smooth_behavior_warning_sensitivity_moves_one_step_when_rounding_to_zero() -> None:
+    current = {
+        **DEFAULT_BEHAVIOR_WARNING_SENSITIVITY,
+        "DROWSINESS": 7,
+        "PHONE_USE": 7,
+    }
+    recommended = {
+        **DEFAULT_BEHAVIOR_WARNING_SENSITIVITY,
+        "DROWSINESS": 8,
+        "PHONE_USE": 6,
+    }
+
+    assert smooth_behavior_warning_sensitivity(
+        current=current,
+        recommended=recommended,
+    ) == {
+        **DEFAULT_BEHAVIOR_WARNING_SENSITIVITY,
+        "DROWSINESS": 8,
+        "PHONE_USE": 6,
+    }
 
 
 @pytest.mark.asyncio

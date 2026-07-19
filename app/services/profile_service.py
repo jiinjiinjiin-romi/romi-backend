@@ -31,6 +31,10 @@ from app.schemas.profile import (
 
 logger = logging.getLogger(__name__)
 
+BEHAVIOR_SENSITIVITY_UPDATE_ALPHA = 0.3
+BEHAVIOR_SENSITIVITY_MIN_VALUE = 3
+BEHAVIOR_SENSITIVITY_MAX_VALUE = 10
+
 
 class ProfileService:
     def __init__(
@@ -214,7 +218,10 @@ class ProfileService:
                     error_code=ErrorCode.BEHAVIOR_SENSITIVITY_UPDATE_CONFLICT,
                 )
 
-            locked_profile.behavior_warning_sensitivity = sensitivity
+            locked_profile.behavior_warning_sensitivity = smooth_behavior_warning_sensitivity(
+                current=original_sensitivity,
+                recommended=sensitivity,
+            )
             await self.session.flush()
             await self.session.refresh(locked_profile)
             await self.session.commit()
@@ -317,3 +324,40 @@ class ProfileService:
             status_code=status.HTTP_404_NOT_FOUND,
             error_code=ErrorCode.PROFILE_NOT_FOUND,
         )
+
+
+def smooth_behavior_warning_sensitivity(
+    *,
+    current: dict[str, int],
+    recommended: dict[str, int],
+    alpha: float = BEHAVIOR_SENSITIVITY_UPDATE_ALPHA,
+) -> dict[str, int]:
+    return {
+        behavior_type: _smooth_sensitivity_value(
+            current=current_value,
+            recommended=recommended[behavior_type],
+            alpha=alpha,
+        )
+        for behavior_type, current_value in current.items()
+    }
+
+
+def _smooth_sensitivity_value(
+    *,
+    current: int,
+    recommended: int,
+    alpha: float,
+) -> int:
+    difference = recommended - current
+    if difference == 0:
+        return current
+
+    delta = round(difference * alpha)
+    if delta == 0:
+        delta = 1 if difference > 0 else -1
+
+    next_value = current + delta
+    return max(
+        BEHAVIOR_SENSITIVITY_MIN_VALUE,
+        min(BEHAVIOR_SENSITIVITY_MAX_VALUE, next_value),
+    )
