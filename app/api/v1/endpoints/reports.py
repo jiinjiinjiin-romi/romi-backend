@@ -2,12 +2,13 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path, Query, status
 
-from app.api.dependencies import CurrentAccount, DbSession
+from app.api.dependencies import AppSettings, CurrentAccount, DbSession
 from app.api.error_handlers import ErrorResponse
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import AppException
 from app.schemas.report import (
     BehaviorEventReportResponse,
+    ReportNarrativeResponse,
     ReportSessionPageResponse,
     ReportSummaryResponse,
 )
@@ -31,8 +32,8 @@ COMMON_REPORT_RESPONSES = {
 }
 
 
-def get_report_service(session: DbSession) -> ReportService:
-    return ReportService(session=session)
+def get_report_service(session: DbSession, settings: AppSettings) -> ReportService:
+    return ReportService(session=session, settings=settings)
 
 
 ReportServiceDep = Annotated[ReportService, Depends(get_report_service)]
@@ -66,6 +67,31 @@ async def get_report_summary(
     behavior_types: str | None = Query(default=None, alias="behaviorTypes"),
 ) -> ReportSummaryResponse:
     return await service.get_summary(
+        current_account,
+        parse_profile_id(profile_id),
+        period_start=period_start,
+        period_end=period_end,
+        behavior_types=behavior_types,
+    )
+
+
+@router.get(
+    "/profiles/{profileId}/reports/narrative",
+    response_model=ReportNarrativeResponse,
+    responses={
+        404: {"model": ErrorResponse},
+        422: {"model": ErrorResponse},
+    },
+)
+async def get_report_narrative(
+    profile_id: ProfilePath,
+    period_start: ReportPeriodStart,
+    period_end: ReportPeriodEnd,
+    current_account: CurrentAccount,
+    service: ReportServiceDep,
+    behavior_types: str | None = Query(default=None, alias="behaviorTypes"),
+) -> ReportNarrativeResponse:
+    return await service.get_narrative(
         current_account,
         parse_profile_id(profile_id),
         period_start=period_start,

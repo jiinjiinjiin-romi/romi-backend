@@ -47,6 +47,15 @@ class ReportSummaryResponse(ApiBaseModel):
     comparison: ReportComparisonResponse
 
 
+class ReportNarrativeResponse(ApiBaseModel):
+    period: ReportPeriodResponse
+    title: str
+    summary: str
+    recommendations: list[str]
+    provider: str
+    fallback: bool
+
+
 class BehaviorTypeStatisticResponse(ApiBaseModel):
     behavior_type: str
     event_count: int

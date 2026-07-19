@@ -7,10 +7,17 @@ from fastapi import status
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import Settings
 from app.core.enums import BehaviorType
 from app.core.error_codes import ErrorCode
 from app.core.exceptions import AppException
+from app.integrations.gemini.report_narrative import (
+    GeminiNotConfiguredError,
+    GeminiProviderError,
+    GeminiReportNarrativeClient,
+)
 from app.models import Account
+from app.policies.report_narrative_policy import fallback_report_narrative
 from app.repositories.profile_repository import ProfileRepository
 from app.repositories.report_repository import (
     BehaviorTypeAggregate,
@@ -23,6 +30,7 @@ from app.schemas.report import (
     DailySafetyScoreResponse,
     HourlyBehaviorCountResponse,
     ReportComparisonResponse,
+    ReportNarrativeResponse,
     ReportOverviewResponse,
     ReportPeriodResponse,
     ReportSessionItemResponse,
@@ -45,10 +53,19 @@ CANONICAL_BEHAVIOR_TYPES = [item.value for item in BehaviorType]
 
 
 class ReportService:
-    def __init__(self, *, session: AsyncSession) -> None:
+    def __init__(
+        self,
+        *,
+        session: AsyncSession,
+        settings: Settings,
+        gemini_report_client: GeminiReportNarrativeClient | None = None,
+    ) -> None:
         self.session = session
         self.profile_repository = ProfileRepository(session)
         self.report_repository = ReportRepository(session)
+        self.gemini_report_client = gemini_report_client or GeminiReportNarrativeClient(
+            settings=settings,
+        )
 
     async def get_summary(
         self,
@@ -223,6 +240,42 @@ class ReportService:
                 HourlyBehaviorCountResponse(hour=item.hour, count=item.count)
                 for item in hourly_counts
             ],
+        )
+
+    async def get_narrative(
+        self,
+        account: Account,
+        profile_id: str,
+        *,
+        period_start: str | None,
+        period_end: str | None,
+        behavior_types: str | None = None,
+    ) -> ReportNarrativeResponse:
+        summary = await self.get_summary(
+            account,
+            profile_id,
+            period_start=period_start,
+            period_end=period_end,
+            behavior_types=behavior_types,
+        )
+        summary_payload = summary.model_dump(mode="json", by_alias=True)
+        try:
+            narrative = await self.gemini_report_client.generate(summary_payload)
+        except (GeminiNotConfiguredError, GeminiProviderError) as exc:
+            logger.info(
+                "Using report narrative fallback profile_id=%s reason=%s",
+                profile_id,
+                getattr(exc, "reason", "gemini_not_configured"),
+            )
+            narrative = fallback_report_narrative(summary)
+
+        return ReportNarrativeResponse(
+            period=summary.period,
+            title=str(narrative["title"]),
+            summary=str(narrative["summary"]),
+            recommendations=[str(item) for item in narrative["recommendations"]],
+            provider=str(narrative["provider"]),
+            fallback=bool(narrative["fallback"]),
         )
 
     async def get_sessions(

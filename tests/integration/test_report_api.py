@@ -6,7 +6,8 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import delete, event
 
-from app.api.dependencies import get_current_account
+from app.api.dependencies import get_current_account, get_settings_dependency
+from app.core.config import Settings
 from app.db.session import AsyncSessionLocal, dispose_engine, engine
 from app.models import (
     Account,
@@ -108,6 +109,10 @@ def override_current_account(app, account: Account) -> None:
         return account
 
     app.dependency_overrides[get_current_account] = current_account_override
+    app.dependency_overrides[get_settings_dependency] = lambda: Settings(
+        gemini_api_key="",
+        gemini_model="",
+    )
 
 
 async def delete_test_accounts(*account_ids: str) -> None:
@@ -449,6 +454,36 @@ async def test_report_summary_api_aggregates_filtered_behavior_and_comparison(
             "SMOKING": 0,
         }
         assert empty_payload["dailySafetyScores"] == []
+    finally:
+        app.dependency_overrides.clear()
+        await delete_test_accounts(account.id, other_account.id)
+        await dispose_engine()
+
+
+async def test_report_narrative_api_returns_gemini_fallback_summary(app, client) -> None:
+    data = await seed_report_data("narrative-report")
+    account = data["account"]
+    other_account = data["other_account"]
+    profile = data["profile"]
+    assert isinstance(account, Account)
+    assert isinstance(other_account, Account)
+    assert isinstance(profile, DriverProfile)
+    override_current_account(app, account)
+
+    try:
+        response = await client.get(
+            f"/api/v1/profiles/{profile.id}/reports/narrative",
+            params={"periodStart": "2026-06-01", "periodEnd": "2026-06-30"},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["period"] == {"start": "2026-06-01", "end": "2026-06-30"}
+        assert payload["title"] == "주행 안전 요약"
+        assert "3회의 주행" in payload["summary"]
+        assert payload["provider"] == "GEMINI"
+        assert payload["fallback"] is True
+        assert len(payload["recommendations"]) == 3
     finally:
         app.dependency_overrides.clear()
         await delete_test_accounts(account.id, other_account.id)
