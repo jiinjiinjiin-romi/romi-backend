@@ -15,9 +15,9 @@ from app.schemas.profile import (
 
 def make_create_payload(**overrides: object) -> dict[str, object]:
     payload: dict[str, object] = {
-        "displayName": " Codex Driver ",
-        "agentCallName": " Codex ",
-        "reportEmail": "codex@example.com",
+        "displayName": " Demo Driver ",
+        "agentCallName": " Roady ",
+        "reportEmail": "demo@example.com",
         "agentPersonality": "FRIENDLY",
         "behaviorWarningSensitivity": DEFAULT_BEHAVIOR_WARNING_SENSITIVITY,
         "ttsVoiceId": None,
@@ -32,10 +32,10 @@ def test_profile_response_serializes_camel_case_without_account_id() -> None:
     profile = DriverProfile(
         id="274d9648-e78a-4630-a8e8-e63070dc3c19",
         account_id="00000000-0000-0000-0000-000000000001",
-        display_name="Codex Driver",
-        agent_call_name="Codex",
+        display_name="Demo Driver",
+        agent_call_name="Roady",
         profile_image_url=None,
-        report_email="codex@example.com",
+        report_email="demo@example.com",
         agent_personality="FRIENDLY",
         warning_sensitivity="MEDIUM",
         behavior_warning_sensitivity=DEFAULT_BEHAVIOR_WARNING_SENSITIVITY,
@@ -54,7 +54,7 @@ def test_profile_response_serializes_camel_case_without_account_id() -> None:
     )
 
     assert "accountId" not in payload
-    assert payload["displayName"] == "Codex Driver"
+    assert payload["displayName"] == "Demo Driver"
     assert payload["behaviorWarningSensitivity"]["DROWSINESS"] == 9
     assert payload["ttsSpeed"] == 1.2
     assert payload["lastUsedAt"] == "2026-06-30T01:02:03.123456Z"
@@ -64,8 +64,8 @@ def test_profile_response_serializes_camel_case_without_account_id() -> None:
 def test_profile_create_request_trims_supported_text_fields() -> None:
     request = ProfileCreateRequest(**make_create_payload(ttsVoiceId=" nes_c_hyeri "))
 
-    assert request.display_name == "Codex Driver"
-    assert request.agent_call_name == "Codex"
+    assert request.display_name == "Demo Driver"
+    assert request.agent_call_name == "Roady"
     assert request.tts_voice_id == "nes_c_hyeri"
 
 

@@ -19,11 +19,11 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def profile_payload(name: str = "Codex API") -> dict[str, object]:
+def profile_payload(name: str = "Demo Driver") -> dict[str, object]:
     return {
         "displayName": name,
-        "agentCallName": "Codex",
-        "reportEmail": "codex-api@example.com",
+        "agentCallName": "Roady",
+        "reportEmail": "demo-driver@example.com",
         "agentPersonality": "FRIENDLY",
         "behaviorWarningSensitivity": DEFAULT_BEHAVIOR_WARNING_SENSITIVITY,
         "ttsVoiceId": None,
@@ -35,7 +35,7 @@ def profile_payload(name: str = "Codex API") -> dict[str, object]:
 async def create_test_account() -> Account:
     account = Account(
         id=str(uuid4()),
-        display_name="Codex Tester",
+        display_name="Demo Tester",
         email=f"profile-api-{uuid4().hex}@example.com",
     )
     async with AsyncSessionLocal() as session:
@@ -96,7 +96,7 @@ async def test_profile_api_crud_select_and_validation(app, client) -> None:
         created = create_response.json()
         profile_id = created["id"]
         assert "accountId" not in created
-        assert created["displayName"] == "Codex API"
+        assert created["displayName"] == "Demo Driver"
         assert created["behaviorWarningSensitivity"]["DROWSINESS"] == 9
         assert created["ttsSpeed"] == 1.0
 
@@ -121,7 +121,7 @@ async def test_profile_api_crud_select_and_validation(app, client) -> None:
         update_response = await client.patch(
             f"/api/v1/profiles/{profile_id}",
             json={
-                "agentCallName": "Codex Updated",
+                "agentCallName": "Roady Updated",
                 "reportEmail": None,
                 "behaviorWarningSensitivity": {
                     **DEFAULT_BEHAVIOR_WARNING_SENSITIVITY,
@@ -134,7 +134,7 @@ async def test_profile_api_crud_select_and_validation(app, client) -> None:
         )
         assert update_response.status_code == 200
         updated = update_response.json()
-        assert updated["agentCallName"] == "Codex Updated"
+        assert updated["agentCallName"] == "Roady Updated"
         assert updated["reportEmail"] is None
         assert updated["behaviorWarningSensitivity"]["FOOD_OR_DRINK"] == 4
         assert updated["ttsVoiceId"] == "nes_c_hyeri"
@@ -152,7 +152,7 @@ async def test_profile_api_crud_select_and_validation(app, client) -> None:
         for index in range(2, 6):
             response = await client.post(
                 "/api/v1/profiles",
-                json=profile_payload(f"Codex API {index}"),
+                json=profile_payload(f"Demo Driver {index}"),
             )
             assert response.status_code == 201
 
